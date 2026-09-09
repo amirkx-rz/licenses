@@ -1,0 +1,13 @@
+{
+  "system_status": "ACTIVE",
+  "allowed_hwids": {
+    "SAMPLE_HWID_1": {
+      "owner": "Ali",
+      "status": true
+    },
+    "SAMPLE_HWID_2": {
+      "owner": "Reza",
+      "status": true
+    }
+  }
+}
