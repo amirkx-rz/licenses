@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("135.0.FINAL_PERFECT")
+script_version("140.0.WIRE_ALGO_FIXED")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -8,7 +8,7 @@ local inicfg = require 'inicfg'
 local iniFile = "PrivateSettings.ini"
 local defaultConfig = {
     wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false },
-    settings = { autoClick = true, jobMode = "repair", clickDelay = 180, isVIP = true },
+    settings = { autoClick = true, jobMode = "repair", clickDelay = 240, isVIP = true },
     stats = { savedPoles = 0, savedMoney = 0 }
 }
 local config = nil
@@ -25,12 +25,12 @@ local hasTeleported = false
 local font = nil
 local activeSpectators = {}
 
-local currentColor = nil
-local isAutoClicking = false
+local lastClickTime = 0
+local lastClickedColor = nil
 local isInMinigame = false
 local lastWireTime = 0
 
--- لینک فرم گوگل با تاییدیه خودکار submit
+-- لینک فرم گوگل
 local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d&submit=Submit"
 
 -- =================================================================
@@ -42,7 +42,6 @@ function main()
 
     font = renderCreateFont("Arial", 11, 5)
 
-    -- ثبت دستور فعال‌سازی ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -56,7 +55,6 @@ function main()
         end
     end)
 
-    -- دستور اضطراری باز کردن فریز ماشین
     sampRegisterChatCommand("unfreeze", function()
         if isCharInAnyCar(PLAYER_PED) then
             local car = storeCarCharIsInNoSave(PLAYER_PED)
@@ -67,7 +65,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/unfreeze", -1)
 
-    -- ترِد ۱: رندر ادمین‌ها/هلپرها و اسپکتورها (فقط برای افراد دارای لایسنس)
+    -- ترِد ۱: رندر ادمین‌ها و اسپکتورها
     lua_thread.create(function()
         while true do
             wait(0)
@@ -111,7 +109,7 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود هوشمند و تلپورت خودکار
+    -- ترِد ۲: فرود هوشمند روی دکل و تلپورت
     lua_thread.create(function()
         while true do
             wait(250)
@@ -122,15 +120,12 @@ function main()
                     sampProcessChatInput(cmd)
                     hasTeleported = true
                     
-                    -- پروسه فرود: اول نشستن کامل چرخ‌ها، سپس فریز
                     lua_thread.create(function()
                         if isCharInAnyCar(PLAYER_PED) then
                             local car = storeCarCharIsInNoSave(PLAYER_PED)
                             freezeCarPosition(car, false)
                             setCarForwardSpeed(car, 0.0)
-                            
-                            wait(1000) -- مهلت نشستن روی زمین و لمس آیکون
-                            
+                            wait(1000)
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
                                 setCarForwardSpeed(car, 0.0)
                                 freezeCarPosition(car, true)
@@ -153,7 +148,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- چک‌پوینت‌ها و اسپکتور
+-- ثبت چک‌پوینت‌ها و اسپکتور
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
@@ -214,7 +209,7 @@ function sendStatsToGoogle(modeName)
 end
 
 -- =================================================================
--- تایید سرور و باز شدن فریز ماشین
+-- تایید سرور و مدیریت کار
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -237,6 +232,7 @@ function sampev.onServerMessage(color, text)
 
         currentPoleCoords = nil
         hasTeleported = false
+        lastClickedColor = nil
 
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -258,6 +254,7 @@ function sampev.onServerMessage(color, text)
         config.settings.jobMode = (config.settings.jobMode == "repair") and "rob" or "repair"
         completedJobs = 0
         hasTeleported = false
+        lastClickedColor = nil
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
         end
@@ -289,24 +286,29 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- حل مینی‌گیم سیم‌ها
+-- الگوریتم اصلاح‌شده و صف‌بندی‌شده کلیک سیم‌ها
 -- =================================================================
-function triggerClick(color)
+function executeWireClick(color)
     local wireID = config.wires[color .. "_ID"]
-    if not wireID or wireID == -1 then return end
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
-    
+
+    -- اگر آیدی هنوز یاد گرفته نشده، به کاربر در چت پیام بده تا یک بار کلیک کند
+    if not wireID or wireID == -1 then
+        sampAddChatMessage(string.format("{FFAA00}[Wire Alert] {FFFFFF}Lotfan yek bar rooye sime {%s}%s {FFFFFF}click konid!", 
+            (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
+        return
+    end
+
+    -- تاخیر استاندارد بدون تداخل متغیرها
     lua_thread.create(function()
-        wait(config.settings.clickDelay or 180)
-        if currentColor == color and config.settings.autoClick and not isAutoClicking then
-            isAutoClicking = true
+        wait(config.settings.clickDelay or 240)
+        if config.settings.autoClick and autoPilot then
             if isPlayer then 
                 sampSendClickPlayerTextDraw(wireID) 
             else 
                 sampSendClickTextdraw(wireID) 
             end
-            wait(50)
-            isAutoClicking = false
+            lastClickTime = os.clock()
         end
     end)
 end
@@ -315,6 +317,7 @@ function handleColorCheck(text)
     if not text or text == "" then return end
     local detected = nil
     
+    -- بررسی کدهای رنگی سرور
     if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
         detected = "GREEN"
     elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
@@ -328,8 +331,12 @@ function handleColorCheck(text)
     if detected then
         isInMinigame = true
         lastWireTime = os.clock()
-        currentColor = detected
-        triggerClick(detected)
+        
+        -- جلوگیری از ارسال کلیک تکراری برای یک پیام در بازه کمتر از ۳۰۰ میلی‌ثانیه
+        if detected ~= lastClickedColor or (os.clock() - lastClickTime > 0.35) then
+            lastClickedColor = detected
+            executeWireClick(detected)
+        end
     end
 end
 
@@ -337,7 +344,8 @@ function saveLearnedID(color, id, isPlayer)
     config.wires[color .. "_ID"] = id
     config.wires[color .. "_IS_PLAYER"] = isPlayer
     pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage(string.format("{00FF00}[Wire] {FFFFFF}Sim {" .. (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00") .. "}%s {FFFFFF}yad gerefte shod!", color), -1)
+    sampAddChatMessage(string.format("{00FF00}[Wire Saved] {FFFFFF}Sime {%s}%s {FFFFFF}sabt shod (ID: %d)", 
+        (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color, id), -1)
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
@@ -345,21 +353,19 @@ function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
+-- یادگیری خودکار هنگام اولین کلیک دستی کاربر
 function sampev.onSendClickTextDraw(id)
-    if not autoPilot or isAutoClicking then return end
-    if currentColor and config.wires[currentColor .. "_ID"] == -1 then
-        saveLearnedID(currentColor, id, false)
+    if not autoPilot then return end
+    if lastClickedColor and config.wires[lastClickedColor .. "_ID"] == -1 then
+        saveLearnedID(lastClickedColor, id, false)
     end
 end
 
 function sampev.onSendClickPlayerTextDraw(id)
-    if not autoPilot or isAutoClicking then return end
-    if currentColor and config.wires[currentColor .. "_ID"] == -1 then
-        saveLearnedID(currentColor, id, true)
+    if not autoPilot then return end
+    if lastClickedColor and config.wires[lastClickedColor .. "_ID"] == -1 then
+        saveLearnedID(lastClickedColor, id, true)
     end
 end
 
--- =================================================================
--- استارت قطعی در فضای ابری (این خط دقیقاً قرار داده شد)
--- =================================================================
 main()
