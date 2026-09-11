@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("111.0.PERFECT")
+script_version("112.0.CLOUD_FIXED")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -23,10 +23,9 @@ local totalPoles = config.stats.savedPoles or 0
 local isTeleporting = false
 local TeleportSync = false
 
--- لینک گوگل فرم
-local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d"
+-- لینک فرم گوگل را اینجا قرار بده
+local GOOGLE_FORM_URL = "" 
 
--- متغیرهای رابط گرافیکی
 local font = renderCreateFont("Arial", 12, 5)
 local activeSpectators = {}
 
@@ -36,7 +35,6 @@ local activeSpectators = {}
 function main()
     while not isSampAvailable() do wait(100) end
 
-    -- ثبت دستورات چت
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}Bot ROSHAN" or "{FF0000}Bot KHAMOSH", -1)
@@ -56,15 +54,14 @@ function main()
         end
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Cloud Script Loaded! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/atp", -1)
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Cloud Script Started Successfully! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/atp", -1)
 
-    -- ترِد 1: رندر متن‌های روی صفحه (ادمین‌ها، هلپرها و اسپکتورها)
+    -- ترِد رندر متن‌ها
     lua_thread.create(function()
         while true do
             wait(0)
             local sw, sh = getScreenResolution()
             
-            -- رندر اسپکت فایندر (سمت چپ)
             local specY = sh / 2
             renderFontDrawText(font, "--- Spectators ---", 10, specY - 20, 0xFF00FFFF)
             local hasSpec = false
@@ -79,7 +76,6 @@ function main()
             end
             if not hasSpec then renderFontDrawText(font, "Hichkas", 10, specY, 0xFF00FF00) end
             
-            -- رندر ادمین‌ها و هلپرهای آنلاین (سمت راست با تگ [A] و [H])
             local yOffset = sh / 3
             renderFontDrawText(font, "--- Staff Online ---", sw - 180, yOffset, 0xFFFFAA00)
             yOffset = yOffset + 18
@@ -100,7 +96,7 @@ function main()
         end
     end)
 
-    -- ترِد 2: حلقه خودکار تلپورت به دکل‌ها
+    -- ترِد تلپورت خودکار
     lua_thread.create(function()
         while true do
             wait(250)
@@ -115,10 +111,6 @@ function main()
 
     wait(-1)
 end
-
--- =================================================================
--- توابع اجرایی و شبکه
--- =================================================================
 
 function startJobCycle()
     if not autoPilot then return end
@@ -217,9 +209,6 @@ function sampev.onServerMessage(color, text)
     end
 end
 
--- =================================================================
--- دیالوگ‌ها و مینی‌گیم سیم‌ها
--- =================================================================
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot then return end
     local t, rawText = (title or ""):lower(), (text or "")
@@ -270,3 +259,8 @@ function sampev.onSendClickPlayerTextDraw(id)
     if not autoPilot then return end
     if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
 end
+
+-- =================================================================
+-- جادوی روشن شدن اسکریپت از طریق فضای ابری!
+-- =================================================================
+main()
