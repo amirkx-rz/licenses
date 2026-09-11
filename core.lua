@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("112.0.CLOUD_FIXED")
+script_version("115.0.BULLETPROOF")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -15,6 +15,9 @@ local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
 if status and res then config = res else config = defaultConfig end
 
+-- لینک مستقیم و آماده گوگل فرم شما
+local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d"
+
 local autoPilot = false
 local currentPoleCoords = nil
 local completedJobs = 0
@@ -23,10 +26,7 @@ local totalPoles = config.stats.savedPoles or 0
 local isTeleporting = false
 local TeleportSync = false
 
--- لینک فرم گوگل را اینجا قرار بده
-local GOOGLE_FORM_URL = "" 
-
-local font = renderCreateFont("Arial", 12, 5)
+local font = nil
 local activeSpectators = {}
 
 -- =================================================================
@@ -34,6 +34,10 @@ local activeSpectators = {}
 -- =================================================================
 function main()
     while not isSampAvailable() do wait(100) end
+    while not sampIsLocalPlayerSpawned() do wait(200) end
+
+    -- ساخت فونت امن پس از لود کامل گرافیک
+    font = renderCreateFont("Arial", 11, 5)
 
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
@@ -54,49 +58,53 @@ function main()
         end
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Cloud Script Started Successfully! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/atp", -1)
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/atp", -1)
 
-    -- ترِد رندر متن‌ها
+    -- ترِد رندر گرافیکی
     lua_thread.create(function()
         while true do
             wait(0)
-            local sw, sh = getScreenResolution()
-            
-            local specY = sh / 2
-            renderFontDrawText(font, "--- Spectators ---", 10, specY - 20, 0xFF00FFFF)
-            local hasSpec = false
-            for name, time in pairs(activeSpectators) do
-                if os.clock() - time < 3.0 then 
-                    renderFontDrawText(font, "⚠️ " .. name, 10, specY, 0xFFFF0000)
-                    specY = specY + 15
-                    hasSpec = true
-                else
-                    activeSpectators[name] = nil
+            if font and sampIsLocalPlayerSpawned() then
+                local sw, sh = getScreenResolution()
+                
+                -- رندر اسپکتور (سمت چپ)
+                local specY = sh / 2
+                renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
+                local hasSpec = false
+                for name, time in pairs(activeSpectators) do
+                    if os.clock() - time < 3.0 then 
+                        renderFontDrawText(font, ">> " .. name, 10, specY, 0xFFFF0000)
+                        specY = specY + 16
+                        hasSpec = true
+                    else
+                        activeSpectators[name] = nil
+                    end
                 end
-            end
-            if not hasSpec then renderFontDrawText(font, "Hichkas", 10, specY, 0xFF00FF00) end
-            
-            local yOffset = sh / 3
-            renderFontDrawText(font, "--- Staff Online ---", sw - 180, yOffset, 0xFFFFAA00)
-            yOffset = yOffset + 18
-            local foundStaff = false
-            for i = 0, sampGetMaxPlayerId(true) do
-                if sampIsPlayerConnected(i) then
-                    local name = sampGetPlayerNickname(i)
-                    if name then
-                        if name:find("%[A%]") or name:find("%[H%]") or name:find("Admin") then
-                            renderFontDrawText(font, name .. " ["..i.."]", sw - 180, yOffset, 0xFFFF0000)
-                            yOffset = yOffset + 18
-                            foundStaff = true
+                if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
+                
+                -- رندر ادمین‌ها و هلپرها (سمت راست با تگ [A] و [H])
+                local yOffset = sh / 3
+                renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
+                yOffset = yOffset + 18
+                local foundStaff = false
+                for i = 0, sampGetMaxPlayerId(true) do
+                    if sampIsPlayerConnected(i) then
+                        local name = sampGetPlayerNickname(i)
+                        if name and type(name) == "string" then
+                            if name:find("%[A%]") or name:find("%[H%]") or name:find("Admin") then
+                                renderFontDrawText(font, name .. " ["..i.."]", sw - 170, yOffset, 0xFFFF0000)
+                                yOffset = yOffset + 16
+                                foundStaff = true
+                            end
                         end
                     end
                 end
+                if not foundStaff then renderFontDrawText(font, "Safe", sw - 170, yOffset, 0xFF00FF00) end
             end
-            if not foundStaff then renderFontDrawText(font, "Safe (No Staff)", sw - 180, yOffset, 0xFF00FF00) end
         end
     end)
 
-    -- ترِد تلپورت خودکار
+    -- ترِد تلپورت خودکار دکل‌ها
     lua_thread.create(function()
         while true do
             wait(250)
@@ -140,15 +148,25 @@ function sampev.onSetRaceCheckpoint(t, pos, np, r) if autoPilot then currentPole
 function sampev.onDisableCheckpoint() currentPoleCoords = nil end
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil end
 
+-- اسپکت‌فایندر ضدباگ (تشخیص دقیق نامرئی‌ها)
 function sampev.onPlayerSync(playerId, data)
-    if sampIsPlayerConnected(playerId) then
-        local mx, my, mz = getCharCoordinates(PLAYER_PED)
-        local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
-        if dist < 1.5 and not isCharOnScreen(getCharPlayerIsTargeting(PLAYER_HANDLE)) then
-            local specName = sampGetPlayerNickname(playerId)
-            activeSpectators[specName] = os.clock()
+    if not sampIsLocalPlayerSpawned() then return end
+    pcall(function()
+        if sampIsPlayerConnected(playerId) then
+            local mx, my, mz = getCharCoordinates(PLAYER_PED)
+            local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
+            if dist < 2.0 then
+                local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
+                -- اگر مختصات روی ما بود اما کاراکتر فیزیکی نداشت، قطعا اسپکتور است
+                if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
+                    local specName = sampGetPlayerNickname(playerId)
+                    if specName and specName ~= "" then
+                        activeSpectators[specName] = os.clock()
+                    end
+                end
+            end
         end
-    end
+    end)
 end
 
 function sendStatsToGoogle(modeName)
@@ -260,7 +278,5 @@ function sampev.onSendClickPlayerTextDraw(id)
     if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
 end
 
--- =================================================================
--- جادوی روشن شدن اسکریپت از طریق فضای ابری!
--- =================================================================
+-- استارت قطعی در فضای ابری
 main()
