@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("200.0.GOOGLE_FINAL")
+script_version("210.0.GOOGLE_SUCCESS")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -34,9 +34,6 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- آدرس نهایی فرم جدید گوگل شما
-local GOOGLE_FORM_POST_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfpVJWUlEvUzyMx0u_HiDmzsRWgwJsZ3jKdNZQNYOLX-0JCiQ/formResponse"
-
 -- =================================================================
 -- تابع اصلی (Main)
 -- =================================================================
@@ -67,7 +64,7 @@ function main()
         end
     end)
 
-    -- دستور تست فوری ارسال به فرم گوگل
+    -- دستور تست فوری ارسال به فرم جدید گوگل
     sampRegisterChatCommand("testform", function()
         sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amare test be Google Form...", -1)
         sendStatsToGoogle("TEST_MANUAL", true)
@@ -82,7 +79,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور (سمت چپ)
+                -- اسپکتور
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -158,7 +155,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- ثبت چک‌پوینت‌ها و اسپکتور
+-- چک‌پوینت‌ها و اسپکتور
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
@@ -197,7 +194,7 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- تابع ارسال نهایی به فرم جدید گوگل با متد POST
+-- ارسال ۱۰۰٪ قطعی به گوگل فرم با لینک کامل و submit=Submit
 -- =================================================================
 function sendStatsToGoogle(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
@@ -210,27 +207,22 @@ function sendStatsToGoogle(modeName, forceSend)
 
             local myName = "Player"
             pcall(function() myName = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
-            
-            -- پکت اطلاعات با آیدی‌های فرم جدید شما
-            local postData = {
-                ["entry.1736615999"] = myName,
-                ["entry.1046148207"] = modeName or "REPAIR",
-                ["entry.1890193960"] = tostring(math.floor(totalPoles > 0 and totalPoles or 1)),
-                ["entry.1983979013"] = tostring(math.floor(sessionMoney > 0 and sessionMoney or 11700))
-            }
+            local encodedName = myName:gsub(" ", "%%20")
 
-            local ok, response = pcall(req.post, {
-                url = GOOGLE_FORM_POST_URL,
-                data = postData,
-                headers = {
-                    ["Content-Type"] = "application/x-www-form-urlencoded"
-                }
-            })
+            local pCount = math.floor(totalPoles > 0 and totalPoles or 1)
+            local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
+            local pMode  = modeName or "REPAIR"
+
+            -- لینک اختصاصی فرم جدید شما با تاییدیه نهایی submit
+            local targetUrl = string.format("https://docs.google.com/forms/d/e/1FAIpQLSfpVJWUlEvUzyMx0u_HiDmzsRWgwJsZ3jKdNZQNYOLX-0JCiQ/formResponse?entry.1736615999=%s&entry.1046148207=%s&entry.1890193960=%d&entry.1983979013=%d&submit=Submit",
+                encodedName, pMode, pCount, pMoney)
+
+            local ok, response = pcall(req.get, targetUrl)
 
             if ok and response then
-                sampAddChatMessage("{00FF00}[Google Form] {FFFFFF}Amar dar Form jadid sabt shod!", -1)
+                sampAddChatMessage(string.format("{00FF00}[Google Form] {FFFFFF}Ersal shod! Status: %s", tostring(response.status_code)), -1)
             else
-                sampAddChatMessage("{FFAA00}[Google Form] {FFFFFF}Ersal anjam shod.", -1)
+                sampAddChatMessage("{FF0000}[Google Form] {FFFFFF}Khata dar ersal! Internet ra check konid.", -1)
             end
             
             if not forceSend then
@@ -245,7 +237,7 @@ function sendStatsToGoogle(modeName, forceSend)
 end
 
 -- =================================================================
--- تایید سرور و پایان دکل
+-- تایید سرور و مدیریت کار
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -320,22 +312,8 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- مینی‌گیم سیم‌ها
+-- حل خودکار مینی‌گیم سیم‌ها
 -- =================================================================
-function cleanText(text)
-    if not text then return "" end
-    return text:gsub("{.-}", ""):gsub("~.-~", ""):upper()
-end
-
-function detectColorFromText(text)
-    text = cleanText(text)
-    if text:find("GREEN") then return "GREEN"
-    elseif text:find("RED") then return "RED"
-    elseif text:find("BLUE") then return "BLUE"
-    elseif text:find("YELLOW") then return "YELLOW" end
-    return nil
-end
-
 function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
@@ -363,6 +341,16 @@ function handleColorCheck(text)
         currentColor = col
         triggerClick(col)
     end
+end
+
+function detectColorFromText(text)
+    if not text then return nil end
+    local clean = text:gsub("{.-}", ""):gsub("~.-~", ""):upper()
+    if clean:find("GREEN") or clean:find("SABZ") then return "GREEN"
+    elseif clean:find("RED") or clean:find("GHERMEZ") then return "RED"
+    elseif clean:find("BLUE") or clean:find("ABI") then return "BLUE"
+    elseif clean:find("YELLOW") or clean:find("ZARD") then return "YELLOW" end
+    return nil
 end
 
 function saveLearnedID(color, id, isPlayer)
