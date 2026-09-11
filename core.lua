@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("FINAL_FIXED_CLEAN")
+script_version("118.0.CLEAN")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -40,15 +40,15 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot", -1)
 
-    -- ترِد نظارت ربات
+    -- ترِد نظارت خودکار جاب دکل
     lua_thread.create(function()
         while true do
             wait(250)
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
-                    -- ارسال دستور فابریک تلپورت به آرت
-                    sampProcessChatInput("/atp")
+                    local cmd = string.format("/atp %.2f %.2f %.2f", currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
+                    sampProcessChatInput(cmd)
                     hasTeleported = true
                 else
                     hasTeleported = true
@@ -192,5 +192,3 @@ function sampev.onSendClickPlayerTextDraw(id)
     if not autoPilot then return end
     if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
 end
-
-main()
