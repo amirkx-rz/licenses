@@ -1,23 +1,18 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("160.0.WIRES_ABSOLUTE")
+script_version("170.0.ORIGINAL_WIRES")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
 
--- خواندن از فایل قدیمی یا جدید برای بارگذاری آیدی‌های ذخیره‌شده شما
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
     wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false },
-    settings = { autoClick = true, jobMode = "repair", clickDelay = 280, isVIP = true },
+    settings = { autoClick = true, jobMode = "repair", clickDelay = 180, isVIP = true },
     stats = { savedPoles = 0, savedMoney = 0 }
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
-if not status or not res then
-    iniFile = "PrivateSettings.ini"
-    status, res = pcall(inicfg.load, defaultConfig, iniFile)
-end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -34,8 +29,6 @@ local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
-local lastProcessedText = ""
-local lastProcessedTime = 0
 
 -- لینک فرم گوگل
 local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d&submit=Submit"
@@ -79,7 +72,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور
+                -- اسپکتور (سمت چپ)
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -94,7 +87,7 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
-                -- استف آنلاین [A] و [H]
+                -- ادمین‌ها و هلپرها (سمت راست با تگ [A] و [H])
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -116,7 +109,7 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود هوشمند و تلپورت
+    -- ترِد ۲: فرود و ارسال مختصات به /atp
     lua_thread.create(function()
         while true do
             wait(250)
@@ -216,7 +209,7 @@ function sendStatsToGoogle(modeName)
 end
 
 -- =================================================================
--- تایید سرور و مدیریت پایان دکل
+-- تایید سرور و پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -239,9 +232,6 @@ function sampev.onServerMessage(color, text)
 
         currentPoleCoords = nil
         hasTeleported = false
-        currentColor = nil
-        isInMinigame = false
-        lastProcessedText = ""
 
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -263,9 +253,6 @@ function sampev.onServerMessage(color, text)
         config.settings.jobMode = (config.settings.jobMode == "repair") and "rob" or "repair"
         completedJobs = 0
         hasTeleported = false
-        currentColor = nil
-        isInMinigame = false
-        lastProcessedText = ""
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
         end
@@ -297,62 +284,48 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- موتور نهایی و بدون خطای کلیک خودکار سیم‌ها (با سیستم صف و ضد دابل‌کلیک)
+-- مینی‌گیم سیم‌ها (دقیقاً کپی ۱:۱ سورس اولیه و بدون دستکاری)
 -- =================================================================
-function executeWireClick(color)
+function cleanText(text)
+    if not text then return "" end
+    return text:gsub("{.-}", ""):gsub("~.-~", ""):upper()
+end
+
+function detectColorFromText(text)
+    text = cleanText(text)
+    if text:find("GREEN") then return "GREEN"
+    elseif text:find("RED") then return "RED"
+    elseif text:find("BLUE") then return "BLUE"
+    elseif text:find("YELLOW") then return "YELLOW" end
+    return nil
+end
+
+function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
-
-    if not wireID or wireID == -1 then
-        sampAddChatMessage(string.format("{FFAA00}[Wire Alert] {FFFFFF}Sime {%s}%s {FFFFFF}sabt nashode! Yek bar click konid.", 
-            (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
-        return
-    end
+    if not wireID or wireID == -1 then return end
 
     lua_thread.create(function()
-        wait(config.settings.clickDelay or 280)
-        if config.settings.autoClick and not isAutoClicking then
+        wait(config.settings.clickDelay or 180)
+        if currentColor == color and config.settings.autoClick then
             isAutoClicking = true
-            if isPlayer then 
-                sampSendClickPlayerTextDraw(wireID) 
-            else 
-                sampSendClickTextdraw(wireID) 
+            if isPlayer then
+                sampSendClickPlayerTextDraw(wireID)
+            else
+                sampSendClickTextdraw(wireID)
             end
-            sampAddChatMessage(string.format("{00DDFF}[Wire] {FFFFFF}-> Clicked: {%s}%s", 
-                (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
-            wait(80)
             isAutoClicking = false
         end
     end)
 end
 
 function handleColorCheck(text)
-    if not text or text == "" then return end
-    
-    -- جلوگیری از پردازش پیام‌های تکراری در کمتر از 350 میلی‌ثانیه
-    if text == lastProcessedText and (os.clock() - lastProcessedTime < 0.35) then
-        return
-    end
-    
-    local detected = nil
-    
-    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
-        detected = "GREEN"
-    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
-        detected = "RED"
-    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
-        detected = "BLUE"
-    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
-        detected = "YELLOW"
-    end
-
-    if detected then
+    local col = detectColorFromText(text)
+    if col then
         isInMinigame = true
         lastWireTime = os.clock()
-        lastProcessedText = text
-        lastProcessedTime = os.clock()
-        currentColor = detected
-        executeWireClick(detected)
+        currentColor = col
+        triggerClick(col)
     end
 end
 
@@ -360,8 +333,7 @@ function saveLearnedID(color, id, isPlayer)
     config.wires[color .. "_ID"] = id
     config.wires[color .. "_IS_PLAYER"] = isPlayer
     pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage(string.format("{00FF00}[Wire Saved] {FFFFFF}Sime {%s}%s {FFFFFF}sabt shod (ID: %d)", 
-        (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
+    sampAddChatMessage("[Electrician] Saved {" .. (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00") .. "}" .. color .. "{FFFFFF}!", -1)
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
@@ -370,17 +342,18 @@ function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
-    if isAutoClicking then return end
+    if isAutoClicking or not config.settings.autoClick then return end
     if currentColor and config.wires[currentColor .. "_ID"] == -1 then
         saveLearnedID(currentColor, id, false)
     end
 end
 
 function sampev.onSendClickPlayerTextDraw(id)
-    if isAutoClicking then return end
+    if isAutoClicking or not config.settings.autoClick then return end
     if currentColor and config.wires[currentColor .. "_ID"] == -1 then
         saveLearnedID(currentColor, id, true)
     end
 end
 
+-- استارت در اجرای ابری
 main()
