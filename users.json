@@ -1,8 +1,8 @@
 {
   "system_status": "ACTIVE",
   "allowed_hwids": {
-    "HWID--2397EEAC": {
-      "owner": "Amir (Admin)",
+    "HWID-Test-1234": {
+      "owner": "TestUser",
       "status": true
     }
   }
