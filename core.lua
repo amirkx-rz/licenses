@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("130.0.SMART_LANDING")
+script_version("135.0.FINAL_PERFECT")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -30,7 +30,7 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- لینک فرم گوگل با تاییدیه submit
+-- لینک فرم گوگل با تاییدیه خودکار submit
 local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d&submit=Submit"
 
 -- =================================================================
@@ -42,7 +42,7 @@ function main()
 
     font = renderCreateFont("Arial", 11, 5)
 
-    -- دستور فعال‌سازی ربات
+    -- ثبت دستور فعال‌سازی ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -67,14 +67,14 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/unfreeze", -1)
 
-    -- ترِد ۱: رندر ادمین‌ها/هلپرها و اسپکتورها
+    -- ترِد ۱: رندر ادمین‌ها/هلپرها و اسپکتورها (فقط برای افراد دارای لایسنس)
     lua_thread.create(function()
         while true do
             wait(0)
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور (سمت چپ)
+                -- ۱. اسپکتور (سمت چپ)
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -89,7 +89,7 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
-                -- استف آنلاین (سمت راست با تگ [A] و [H])
+                -- ۲. استف آنلاین (سمت راست با تگ [A] و [H])
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -111,7 +111,7 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود هوشمند روی زمین و فریز بعد از نشستن
+    -- ترِد ۲: فرود هوشمند و تلپورت خودکار
     lua_thread.create(function()
         while true do
             wait(250)
@@ -122,16 +122,15 @@ function main()
                     sampProcessChatInput(cmd)
                     hasTeleported = true
                     
-                    -- پروسه فرود هوشمند: اول رهاسازی تا چرخ‌ها به زمین برسند، سپس فریز
+                    -- پروسه فرود: اول نشستن کامل چرخ‌ها، سپس فریز
                     lua_thread.create(function()
                         if isCharInAnyCar(PLAYER_PED) then
                             local car = storeCarCharIsInNoSave(PLAYER_PED)
-                            freezeCarPosition(car, false) -- اول آزاد باشد تا با جاذبه روی زمین بیفتد
+                            freezeCarPosition(car, false)
                             setCarForwardSpeed(car, 0.0)
                             
-                            wait(1000) -- ۱ ثانیه کامل مهلت برای نشستن چرخ‌ها و لمس آیکون زرد
+                            wait(1000) -- مهلت نشستن روی زمین و لمس آیکون
                             
-                            -- حالا که روی زمین نشست، روی شیب فریز می‌شود تا سر نخورد
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
                                 setCarForwardSpeed(car, 0.0)
                                 freezeCarPosition(car, true)
@@ -239,7 +238,6 @@ function sampev.onServerMessage(color, text)
         currentPoleCoords = nil
         hasTeleported = false
 
-        -- باز شدن فریز برای حرکت به دکل بعدی
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
         end
@@ -291,7 +289,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- حل مینی‌گیم سیم‌ها (پشتیبانی از کدهای رنگی GTA و هگز)
+-- حل مینی‌گیم سیم‌ها
 -- =================================================================
 function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
@@ -317,7 +315,6 @@ function handleColorCheck(text)
     if not text or text == "" then return end
     local detected = nil
     
-    -- بررسی کدهای رنگی GTA (~r~, ~g~, ~b~, ~y~) و متن‌های انگلیسی/هگز
     if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
         detected = "GREEN"
     elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
@@ -361,3 +358,8 @@ function sampev.onSendClickPlayerTextDraw(id)
         saveLearnedID(currentColor, id, true)
     end
 end
+
+-- =================================================================
+-- استارت قطعی در فضای ابری (این خط دقیقاً قرار داده شد)
+-- =================================================================
+main()
