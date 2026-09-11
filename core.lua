@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("210.0.GOOGLE_SUCCESS")
+script_version("300.0.RUBIKA_FINAL")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -13,10 +13,6 @@ local defaultConfig = {
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
-if not status or not res then
-    iniFile = "PrivateSettings.ini"
-    status, res = pcall(inicfg.load, defaultConfig, iniFile)
-end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -33,6 +29,10 @@ local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
+
+-- اطلاعات توکن و چت‌آیدی روبیکای شما
+local RUBIKA_BOT_TOKEN = "CECHAA0UVWBYWACFWKHITPFVKTUMYNSUXIBACZJWSXORHZIXQDZFMHOORCTZXJCB"
+local RUBIKA_CHAT_ID   = "b0HMBLf0BENh0eeff510f14e585cdf43"
 
 -- =================================================================
 -- تابع اصلی (Main)
@@ -52,7 +52,7 @@ function main()
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
             end
-            sendStatsToGoogle(config.settings.jobMode:upper(), false)
+            sendStatsToRubika(config.settings.jobMode:upper(), false)
         end
     end)
 
@@ -64,10 +64,10 @@ function main()
         end
     end)
 
-    -- دستور تست فوری ارسال به فرم جدید گوگل
+    -- دستور تست فوری ارسال آمار به روبیکا
     sampRegisterChatCommand("testform", function()
-        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amare test be Google Form...", -1)
-        sendStatsToGoogle("TEST_MANUAL", true)
+        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal payam be Rubika...", -1)
+        sendStatsToRubika("TEST_MANUAL", true)
     end)
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testform {FFFFFF}| {00FFFF}/unfreeze", -1)
@@ -79,7 +79,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور
+                -- اسپکتور (سمت چپ)
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -155,7 +155,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- چک‌پوینت‌ها و اسپکتور
+-- ثبت چک‌پوینت‌ها و اسپکتور
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
@@ -194,35 +194,46 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- ارسال ۱۰۰٪ قطعی به گوگل فرم با لینک کامل و submit=Submit
+-- تابع ارسال آمار به ربات روبیکا با متد POST
 -- =================================================================
-function sendStatsToGoogle(modeName, forceSend)
+function sendStatsToRubika(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
         lua_thread.create(function()
             local req_ok, req = pcall(require, 'requests')
             if not req_ok or not req then
-                sampAddChatMessage("{FF0000}[Google Error] Library 'requests' peyda nashod!", -1)
+                sampAddChatMessage("{FF0000}[Rubika Error] Library 'requests' nist!", -1)
                 return
             end
 
             local myName = "Player"
             pcall(function() myName = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
-            local encodedName = myName:gsub(" ", "%%20")
-
+            
             local pCount = math.floor(totalPoles > 0 and totalPoles or 1)
             local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
             local pMode  = modeName or "REPAIR"
 
-            -- لینک اختصاصی فرم جدید شما با تاییدیه نهایی submit
-            local targetUrl = string.format("https://docs.google.com/forms/d/e/1FAIpQLSfpVJWUlEvUzyMx0u_HiDmzsRWgwJsZ3jKdNZQNYOLX-0JCiQ/formResponse?entry.1736615999=%s&entry.1046148207=%s&entry.1890193960=%d&entry.1983979013=%d&submit=Submit",
-                encodedName, pMode, pCount, pMoney)
+            local textMsg = string.format("📊 *گزارش کارکرد ربات برق‌کار* ⚡️\n\n👤 بازیکن: `%s`\n🛠 مود: `%s`\n⚡️ تعداد دکل: `%d`\n💰 درآمد کل: `$%,d`",
+                myName, pMode, pCount, pMoney)
 
-            local ok, response = pcall(req.get, targetUrl)
+            local url = string.format("https://botapi.rubika.ir/v3/%s/sendMessage", RUBIKA_BOT_TOKEN)
+            
+            local postData = encodeJson({
+                chat_id = RUBIKA_CHAT_ID,
+                text = textMsg
+            })
 
-            if ok and response then
-                sampAddChatMessage(string.format("{00FF00}[Google Form] {FFFFFF}Ersal shod! Status: %s", tostring(response.status_code)), -1)
+            local ok, response = pcall(req.post, {
+                url = url,
+                data = postData,
+                headers = {
+                    ["Content-Type"] = "application/json"
+                }
+            })
+
+            if ok and response and (response.status_code == 200 or response.status_code == 201) then
+                sampAddChatMessage("{00FF00}[Rubika] {FFFFFF}Gozarshe amar be Rubika ersal shod!", -1)
             else
-                sampAddChatMessage("{FF0000}[Google Form] {FFFFFF}Khata dar ersal! Internet ra check konid.", -1)
+                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata dar ersal be Rubika!", -1)
             end
             
             if not forceSend then
@@ -237,7 +248,7 @@ function sendStatsToGoogle(modeName, forceSend)
 end
 
 -- =================================================================
--- تایید سرور و مدیریت کار
+-- تایید سرور و مدیریت پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -271,7 +282,7 @@ function sampev.onServerMessage(color, text)
             completedJobs = 0
             local prevMode = config.settings.jobMode
             config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-            sendStatsToGoogle(prevMode:upper(), false)
+            sendStatsToRubika(prevMode:upper(), false)
         end
 
         lua_thread.create(function() wait(2000); startJobCycle() end)
@@ -312,7 +323,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- حل خودکار مینی‌گیم سیم‌ها
+-- مینی‌گیم سیم‌ها
 -- =================================================================
 function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
@@ -334,30 +345,32 @@ function triggerClick(color)
 end
 
 function handleColorCheck(text)
-    local col = detectColorFromText(text)
-    if col then
+    if not text or text == "" then return end
+    local detected = nil
+    
+    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
+        detected = "GREEN"
+    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
+        detected = "RED"
+    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
+        detected = "BLUE"
+    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
+        detected = "YELLOW"
+    end
+
+    if detected then
         isInMinigame = true
         lastWireTime = os.clock()
-        currentColor = col
-        triggerClick(col)
+        currentColor = detected
+        triggerClick(detected)
     end
-end
-
-function detectColorFromText(text)
-    if not text then return nil end
-    local clean = text:gsub("{.-}", ""):gsub("~.-~", ""):upper()
-    if clean:find("GREEN") or clean:find("SABZ") then return "GREEN"
-    elseif clean:find("RED") or clean:find("GHERMEZ") then return "RED"
-    elseif clean:find("BLUE") or clean:find("ABI") then return "BLUE"
-    elseif clean:find("YELLOW") or clean:find("ZARD") then return "YELLOW" end
-    return nil
 end
 
 function saveLearnedID(color, id, isPlayer)
     config.wires[color .. "_ID"] = id
     config.wires[color .. "_IS_PLAYER"] = isPlayer
     pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage("[Electrician] Saved {" .. (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00") .. "}" .. color .. "{FFFFFF}!", -1)
+    sampAddChatMessage(string.format("[Electrician] Saved {" .. (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00") .. "}%s {FFFFFF}!", color), -1)
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
