@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("170.0.ORIGINAL_WIRES")
+script_version("180.0.GOOGLE_POST_FIXED")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -13,6 +13,10 @@ local defaultConfig = {
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
+if not status or not res then
+    iniFile = "PrivateSettings.ini"
+    status, res = pcall(inicfg.load, defaultConfig, iniFile)
+end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -30,8 +34,8 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- لینک فرم گوگل
-local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d&submit=Submit"
+-- آدرس مستقیم فرم گوگل
+local GOOGLE_FORM_POST_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse"
 
 -- =================================================================
 -- تابع اصلی (Main)
@@ -51,7 +55,7 @@ function main()
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
             end
-            sendStatsToGoogle(config.settings.jobMode:upper())
+            sendStatsToGoogle(config.settings.jobMode:upper(), false)
         end
     end)
 
@@ -63,7 +67,13 @@ function main()
         end
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot {FFFFFF}| {00FFFF}/unfreeze", -1)
+    -- دستور تست فوری ارسال به گوگل فرم
+    sampRegisterChatCommand("testform", function()
+        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amare test be Google Form...", -1)
+        sendStatsToGoogle("TEST_MANUAL", true)
+    end)
+
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testform {FFFFFF}| {00FFFF}/unfreeze", -1)
 
     -- ترِد ۱: رندر ادمین‌ها و اسپکتورها
     lua_thread.create(function()
@@ -72,7 +82,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور (سمت چپ)
+                -- اسپکتور
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -87,7 +97,7 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
-                -- ادمین‌ها و هلپرها (سمت راست با تگ [A] و [H])
+                -- استف آنلاین [A] و [H]
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -109,7 +119,7 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود و ارسال مختصات به /atp
+    -- ترِد ۲: فرود هوشمند و تلپورت
     lua_thread.create(function()
         while true do
             wait(250)
@@ -148,7 +158,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- ثبت چک‌پوینت‌ها و اسپکتور
+-- چک‌پوینت‌ها و اسپکتور
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
@@ -187,29 +197,51 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- ارسال آمار به گوگل فرم
+-- تابع ارسال قطعی به گوگل فرم با متد POST
 -- =================================================================
-function sendStatsToGoogle(modeName)
-    if totalPoles > 0 and GOOGLE_FORM_URL ~= "" then
+function sendStatsToGoogle(modeName, forceSend)
+    if (totalPoles > 0 or forceSend) then
         lua_thread.create(function()
-            local req = require 'requests'
+            local req_ok, req = pcall(require, 'requests')
+            if not req_ok or not req then
+                sampAddChatMessage("{FF0000}[Google Error] Library 'requests' peyda nashod!", -1)
+                return
+            end
+
             local myName = "Player"
             pcall(function() myName = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
-            local encodedName = myName:gsub(" ", "%%20")
-            local targetUrl = string.format(GOOGLE_FORM_URL, encodedName, modeName, totalPoles, sessionMoney)
-            pcall(req.get, targetUrl)
             
-            totalPoles = 0
-            sessionMoney = 0
-            config.stats.savedPoles = 0
-            config.stats.savedMoney = 0
-            pcall(inicfg.save, config, iniFile)
+            local postData = {
+                ["entry.401900459"] = myName,
+                ["entry.713901036"] = modeName or "REPAIR",
+                ["entry.1717034231"] = tostring(math.floor(totalPoles > 0 and totalPoles or 1)),
+                ["entry.219007459"] = tostring(math.floor(sessionMoney > 0 and sessionMoney or 11700))
+            }
+
+            local ok, response = pcall(req.post, {
+                url = GOOGLE_FORM_POST_URL,
+                data = postData
+            })
+
+            if ok and response then
+                sampAddChatMessage("{00FF00}[Google Form] {FFFFFF}Amar dar Google Form sabt shod!", -1)
+            else
+                sampAddChatMessage("{FFAA00}[Google Form] {FFFFFF}Darkhast ersal shod.", -1)
+            end
+            
+            if not forceSend then
+                totalPoles = 0
+                sessionMoney = 0
+                config.stats.savedPoles = 0
+                config.stats.savedMoney = 0
+                pcall(inicfg.save, config, iniFile)
+            end
         end)
     end
 end
 
 -- =================================================================
--- تایید سرور و پایان دکل
+-- تایید سرور و مدیریت پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -243,7 +275,7 @@ function sampev.onServerMessage(color, text)
             completedJobs = 0
             local prevMode = config.settings.jobMode
             config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-            sendStatsToGoogle(prevMode:upper())
+            sendStatsToGoogle(prevMode:upper(), false)
         end
 
         lua_thread.create(function() wait(2000); startJobCycle() end)
@@ -284,7 +316,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- مینی‌گیم سیم‌ها (دقیقاً کپی ۱:۱ سورس اولیه و بدون دستکاری)
+-- مینی‌گیم سیم‌ها
 -- =================================================================
 function cleanText(text)
     if not text then return "" end
