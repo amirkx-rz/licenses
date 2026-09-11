@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("300.0.RUBIKA_FINAL")
+script_version("200.0.CRASH_FIXED")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -13,6 +13,10 @@ local defaultConfig = {
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
+if not status or not res then
+    iniFile = "PrivateSettings.ini"
+    status, res = pcall(inicfg.load, defaultConfig, iniFile)
+end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -31,8 +35,8 @@ local isInMinigame = false
 local lastWireTime = 0
 
 -- اطلاعات توکن و چت‌آیدی روبیکای شما
-local RUBIKA_BOT_TOKEN = "CECHAA0UVWBYWACFWKHITPFVKTUMYNSUXIBACZJWSXORHZIXQDZFMHOORCTZXJCB"
-local RUBIKA_CHAT_ID   = "b0HMBLf0BENh0eeff510f14e585cdf43"
+local RUBIKA_BOT_TOKEN = "8899767938:AAGND-rSlHi-6w7TBjAAAHFkGnKQHWC2Dr8"
+local RUBIKA_CHAT_ID   = "5711535173"
 
 -- =================================================================
 -- تابع اصلی (Main)
@@ -79,7 +83,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور (سمت چپ)
+                -- اسپکتور
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -194,7 +198,7 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- تابع ارسال آمار به ربات روبیکا با متد POST
+-- تابع ارسال ایمن به روبیکا بدون نیاز به encodeJson (ضد کرش)
 -- =================================================================
 function sendStatsToRubika(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
@@ -212,28 +216,23 @@ function sendStatsToRubika(modeName, forceSend)
             local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
             local pMode  = modeName or "REPAIR"
 
-            local textMsg = string.format("📊 *گزارش کارکرد ربات برق‌کار* ⚡️\n\n👤 بازیکن: `%s`\n🛠 مود: `%s`\n⚡️ تعداد دکل: `%d`\n💰 درآمد کل: `$%,d`",
+            local textMsg = string.format("📊 *Gozarshe Kar* (Electrician) ⚡️\\n👤 Player: %s\\n🛠 Mode: %s\\n⚡️ Poles: %d\\n💰 Income: $%d",
                 myName, pMode, pCount, pMoney)
 
             local url = string.format("https://botapi.rubika.ir/v3/%s/sendMessage", RUBIKA_BOT_TOKEN)
             
-            local postData = encodeJson({
-                chat_id = RUBIKA_CHAT_ID,
-                text = textMsg
-            })
+            -- ساخت متن JSON به صورت دستی برای جلوگیری از خطای کتابخانه
+            local postData = '{"chat_id":"' .. RUBIKA_CHAT_ID .. '","text":"' .. textMsg .. '"}'
 
-            local ok, response = pcall(req.post, {
-                url = url,
+            local ok, response = pcall(req.post, url, {
                 data = postData,
-                headers = {
-                    ["Content-Type"] = "application/json"
-                }
+                headers = { ["Content-Type"] = "application/json" }
             })
 
             if ok and response and (response.status_code == 200 or response.status_code == 201) then
-                sampAddChatMessage("{00FF00}[Rubika] {FFFFFF}Gozarshe amar be Rubika ersal shod!", -1)
+                sampAddChatMessage("{00FF00}[Rubika] {FFFFFF}Amar ersal shod!", -1)
             else
-                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata dar ersal be Rubika!", -1)
+                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata dar ersal!", -1)
             end
             
             if not forceSend then
