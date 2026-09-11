@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("118.0.CLEAN")
+script_version("115.0.PERFECT_ALL")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -22,12 +22,23 @@ local sessionMoney = config.stats.savedMoney or 0
 local totalPoles = config.stats.savedPoles or 0
 local hasTeleported = false
 
+local font = nil
+local activeSpectators = {}
+
+-- لینک آماده فرم گوگل شما
 local GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse?entry.401900459=%s&entry.713901036=%s&entry.1717034231=%d&entry.219007459=%d"
 
+-- =================================================================
+-- تابع اصلی (Main)
+-- =================================================================
 function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
+    -- ساخت فونت رندر
+    font = renderCreateFont("Arial", 11, 5)
+
+    -- دستور فعال‌سازی ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -40,7 +51,51 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmd: {00FFFF}/bot", -1)
 
-    -- ترِد نظارت خودکار جاب دکل
+    -- ترِد ۱: رندر لیست ادمین‌ها/هلپرها (راست) و اسپکتورها (چپ)
+    lua_thread.create(function()
+        while true do
+            wait(0)
+            if font and sampIsLocalPlayerSpawned() then
+                local sw, sh = getScreenResolution()
+                
+                -- ۱. اسپکت فایندر (سمت چپ)
+                local specY = sh / 2
+                renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
+                local hasSpec = false
+                for name, time in pairs(activeSpectators) do
+                    if os.clock() - time < 3.0 then 
+                        renderFontDrawText(font, ">> " .. name, 10, specY, 0xFFFF0000)
+                        specY = specY + 16
+                        hasSpec = true
+                    else
+                        activeSpectators[name] = nil
+                    end
+                end
+                if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
+                
+                -- ۲. ادمین‌ها و هلپرها (سمت راست با شناسایی تگ [A] و [H])
+                local yOffset = sh / 3
+                renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
+                yOffset = yOffset + 18
+                local foundStaff = false
+                for i = 0, sampGetMaxPlayerId(true) do
+                    if sampIsPlayerConnected(i) then
+                        local name = sampGetPlayerNickname(i)
+                        if name and type(name) == "string" then
+                            if name:find("%[A%]") or name:find("%[H%]") or name:find("Admin") then
+                                renderFontDrawText(font, name .. " ["..i.."]", sw - 170, yOffset, 0xFFFF0000)
+                                yOffset = yOffset + 16
+                                foundStaff = true
+                            end
+                        end
+                    end
+                end
+                if not foundStaff then renderFontDrawText(font, "Safe", sw - 170, yOffset, 0xFF00FF00) end
+            end
+        end
+    end)
+
+    -- ترِد ۲: حلقه خودکار ربات و ارسال مختصات دقیق دکل به /atp
     lua_thread.create(function()
         while true do
             wait(250)
@@ -65,6 +120,9 @@ function startJobCycle()
     lua_thread.create(function() wait(500); sampSendChat("/pl") end)
 end
 
+-- =================================================================
+-- ثبت چک‌پوینت‌ها و شناسایی اسپکتور
+-- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
         currentPoleCoords = pos 
@@ -82,6 +140,28 @@ end
 function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
+function sampev.onPlayerSync(playerId, data)
+    if not sampIsLocalPlayerSpawned() then return end
+    pcall(function()
+        if sampIsPlayerConnected(playerId) then
+            local mx, my, mz = getCharCoordinates(PLAYER_PED)
+            local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
+            if dist < 2.0 then
+                local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
+                if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
+                    local specName = sampGetPlayerNickname(playerId)
+                    if specName and specName ~= "" then
+                        activeSpectators[specName] = os.clock()
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- =================================================================
+-- محاسبه درآمد و ارسال به گوگل فرم
+-- =================================================================
 function sendStatsToGoogle(modeName)
     if totalPoles > 0 and GOOGLE_FORM_URL ~= "" then
         lua_thread.create(function()
@@ -142,6 +222,9 @@ function sampev.onServerMessage(color, text)
     end
 end
 
+-- =================================================================
+-- دیالوگ‌ها و حل مینی‌گیم سیم‌ها
+-- =================================================================
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot then return end
     local t, rawText = (title or ""):lower(), (text or "")
