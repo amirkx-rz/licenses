@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("180.0.GOOGLE_POST_FIXED")
+script_version("200.0.GOOGLE_FINAL")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -34,8 +34,8 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- آدرس مستقیم فرم گوگل
-local GOOGLE_FORM_POST_URL = "https://docs.google.com/forms/d/e/1FAIpQLSckd95-_wZKdXN9p0N-AS5c5wj_8H0pf1JZ4wAPrhVxOvSx6Q/formResponse"
+-- آدرس نهایی فرم جدید گوگل شما
+local GOOGLE_FORM_POST_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfpVJWUlEvUzyMx0u_HiDmzsRWgwJsZ3jKdNZQNYOLX-0JCiQ/formResponse"
 
 -- =================================================================
 -- تابع اصلی (Main)
@@ -67,7 +67,7 @@ function main()
         end
     end)
 
-    -- دستور تست فوری ارسال به گوگل فرم
+    -- دستور تست فوری ارسال به فرم گوگل
     sampRegisterChatCommand("testform", function()
         sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amare test be Google Form...", -1)
         sendStatsToGoogle("TEST_MANUAL", true)
@@ -82,7 +82,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور
+                -- اسپکتور (سمت چپ)
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -97,7 +97,7 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
-                -- استف آنلاین [A] و [H]
+                -- استف آنلاین [A] و [H] (سمت راست)
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -158,7 +158,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- چک‌پوینت‌ها و اسپکتور
+-- ثبت چک‌پوینت‌ها و اسپکتور
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad) 
     if autoPilot then 
@@ -197,7 +197,7 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- تابع ارسال قطعی به گوگل فرم با متد POST
+-- تابع ارسال نهایی به فرم جدید گوگل با متد POST
 -- =================================================================
 function sendStatsToGoogle(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
@@ -211,22 +211,26 @@ function sendStatsToGoogle(modeName, forceSend)
             local myName = "Player"
             pcall(function() myName = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
             
+            -- پکت اطلاعات با آیدی‌های فرم جدید شما
             local postData = {
-                ["entry.401900459"] = myName,
-                ["entry.713901036"] = modeName or "REPAIR",
-                ["entry.1717034231"] = tostring(math.floor(totalPoles > 0 and totalPoles or 1)),
-                ["entry.219007459"] = tostring(math.floor(sessionMoney > 0 and sessionMoney or 11700))
+                ["entry.1736615999"] = myName,
+                ["entry.1046148207"] = modeName or "REPAIR",
+                ["entry.1890193960"] = tostring(math.floor(totalPoles > 0 and totalPoles or 1)),
+                ["entry.1983979013"] = tostring(math.floor(sessionMoney > 0 and sessionMoney or 11700))
             }
 
             local ok, response = pcall(req.post, {
                 url = GOOGLE_FORM_POST_URL,
-                data = postData
+                data = postData,
+                headers = {
+                    ["Content-Type"] = "application/x-www-form-urlencoded"
+                }
             })
 
             if ok and response then
-                sampAddChatMessage("{00FF00}[Google Form] {FFFFFF}Amar dar Google Form sabt shod!", -1)
+                sampAddChatMessage("{00FF00}[Google Form] {FFFFFF}Amar dar Form jadid sabt shod!", -1)
             else
-                sampAddChatMessage("{FFAA00}[Google Form] {FFFFFF}Darkhast ersal shod.", -1)
+                sampAddChatMessage("{FFAA00}[Google Form] {FFFFFF}Ersal anjam shod.", -1)
             end
             
             if not forceSend then
@@ -241,7 +245,7 @@ function sendStatsToGoogle(modeName, forceSend)
 end
 
 -- =================================================================
--- تایید سرور و مدیریت پایان دکل
+-- تایید سرور و پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -387,5 +391,4 @@ function sampev.onSendClickPlayerTextDraw(id)
     end
 end
 
--- استارت در اجرای ابری
 main()
