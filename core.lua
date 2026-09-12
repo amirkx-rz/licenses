@@ -1,9 +1,11 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("1000.0.ULTIMATE_PACKAGE")
+script_version("1000.0.THE_END")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
+local http = require 'socket.http'
+local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -29,16 +31,12 @@ local hasTeleported = false
 local font = nil
 local activeSpectators = {}
 
-local currentColor = nil
-local isAutoClicking = false
-local isInMinigame = false
-local lastWireTime = 0
+-- =================================================================
+-- توکن و چت‌آیدی اختصاصی ربات "بله" شما
+-- =================================================================
+local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
+local BALE_CHAT_ID   = "1804721465" -- <<<< عدد چت آیدی خودت را اینجا بذار!
 
--- کلیدها و آیدی دقیق یوزر شما در روبیکا
-local RUBIKA_BOT_TOKEN = "8899767938:AAGND-rSlHi-6w7TBjAAAHFkGnKQHWC2Dr8"
-local RUBIKA_CHAT_ID   = "u0HMBLf0979ba9be99cc859323174c34"
-
--- سپر محافظ پکت‌ها
 local TeleportSync = false
 
 -- =================================================================
@@ -56,23 +54,27 @@ function main()
         if autoPilot then
             startJobCycle()
         else
-            -- ارسال آمار به روبیکا موقع خاموش کردن
-            sendStats("MANUAL_STOP", true)
+            sendStatsToBale(config.settings.jobMode:upper(), false)
         end
     end)
 
-    -- دستور تست فوری روبیکا
-    sampRegisterChatCommand("testrubika", function()
-        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal be Rubika (Method: URL GET)...", -1)
-        sendStats("TEST_MANUAL", true)
+    sampRegisterChatCommand("unfreeze", function()
+        if isCharInAnyCar(PLAYER_PED) then
+            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+            sampAddChatMessage("{00FF00}[Car] Ghofle mashin baz shod.", -1)
+        end
     end)
 
-    -- نمایش آمار آفلاین در چت
+    sampRegisterChatCommand("testbale", function()
+        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amar be Bale...", -1)
+        sendStatsToBale("TEST_MANUAL", true)
+    end)
+
     sampRegisterChatCommand("mystats", function()
         sampAddChatMessage(string.format("{00DDFF}[Stats] {FFFFFF}Poles: %d | Income: $%d", totalPoles, sessionMoney), -1)
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testrubika {FFFFFF}| {00FFFF}/mystats", -1)
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testbale {FFFFFF}| {00FFFF}/mystats", -1)
 
     -- ترِد ۱: رندر ادمین‌ها و اسپکتورها
     lua_thread.create(function()
@@ -81,7 +83,6 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
-                -- اسپکتور
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -96,7 +97,6 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
-                -- ادمین و هلپر [A] [H]
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -143,7 +143,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- متد ۱۰۰٪ خالص آرت (بدون فریز ماشین، بدون کرش، فقط Player Ped)
+-- متد ۱۰۰٪ خالص آرت (بدون باگ و بدون بک‌خوردن)
 -- =================================================================
 function executeArtTeleport(tx, ty, tz)
     lua_thread.create(function()
@@ -159,10 +159,8 @@ function executeArtTeleport(tx, ty, tz)
     end)
 end
 
--- مسدودسازی پکت‌های بازگرداننده سرور
 function sampev.onReceiveRpc(id, bitStream)
     if TeleportSync then
-        -- 12 = SetPlayerPos | 159/71 = SetVehiclePos
         if id == 12 or id == 159 or id == 71 then
             return false
         end
@@ -203,18 +201,9 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- سیستم ارسال آمار به روبیکا (متد جادویی URL Encode بدون JSON)
+-- سیستم ارسال آمار به پیام‌رسان بله (دقیقاً مشابه curl موفق شما)
 -- =================================================================
-local function urlencode(str)
-    if str then
-        str = string.gsub(str, "\n", "\r\n")
-        str = string.gsub(str, "([^%w %-%_%.%~])", function(c) return string.format("%%%02X", string.byte(c)) end)
-        str = string.gsub(str, " ", "%%20")
-    end
-    return str
-end
-
-function sendStats(modeName, forceSend)
+function sendStatsToBale(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
         lua_thread.create(function()
             local myName = "Player"
@@ -224,7 +213,7 @@ function sendStats(modeName, forceSend)
             local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
             local pMode  = modeName or "REPAIR"
 
-            -- 1. ذخیره در فایل متنی داخل گوشی (بک‌آپ امنیتی آفلاین)
+            -- ذخیره بک‌آپ آفلاین در فایل متنی
             pcall(function()
                 local path = getWorkingDirectory() .. "/ElectricianStats.txt"
                 local f = io.open(path, "a")
@@ -234,25 +223,31 @@ function sendStats(modeName, forceSend)
                 end
             end)
 
-            -- 2. ارسال به روبیکا از طریق لینک مستقیم (GET Request)
-            local rawText = string.format("📊 Report (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
-            local encodedText = urlencode(rawText)
+            -- ارسال به بله (بدون نیاز به کتابخانه json، دقیقاً با فرمت curl)
+            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\\n👤 Player: %s\\n🛠 Mode: %s\\n⚡️ Poles: %d\\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+            local body = '{"chat_id":"' .. BALE_CHAT_ID .. '","text":"' .. rawText .. '"}'
             
-            -- فرمت جادویی که امکان ندارد INVALID_INPUT بدهد!
-            local targetUrl = string.format("https://botapi.rubika.ir/v3/%s/sendMessage?chat_id=%s&text=%s", RUBIKA_BOT_TOKEN, RUBIKA_CHAT_ID, encodedText)
+            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage", BALE_BOT_TOKEN)
+            
+            local response_body = {}
+            local ok, _, code, _ = pcall(function()
+                return http.request({
+                    url = url,
+                    method = "POST",
+                    headers = {
+                        ["Content-Type"] = "application/json",
+                        ["Content-Length"] = tostring(#body)
+                    },
+                    source = ltn12.source.string(body),
+                    sink = ltn12.sink.table(response_body)
+                })
+            end)
 
-            -- استفاده از 2 کتابخانه مختلف برای اطمینان 100 درصدی از ارسال
-            local req_ok, req = pcall(require, 'requests')
-            if req_ok and req then
-                pcall(req.get, targetUrl)
+            if ok and code == 200 then
+                sampAddChatMessage("{00FF00}[Bale] {FFFFFF}Amar ba movafaghiyat be Bale ersal shod!", -1)
             else
-                local http_ok, http = pcall(require, 'socket.http')
-                if http_ok and http then
-                    pcall(http.request, targetUrl)
-                end
+                sampAddChatMessage("{FF0000}[Bale Error] {FFFFFF}Khata dar ersal. Check ElectricianStats.txt", -1)
             end
-            
-            sampAddChatMessage("{00FF00}[System] {FFFFFF}Amar zakhire va ersal shod!", -1)
             
             if not forceSend then
                 totalPoles = 0
@@ -288,7 +283,6 @@ function sampev.onServerMessage(color, text)
         pcall(inicfg.save, config, iniFile)
 
         currentPoleCoords = nil
-        hasTeleported = false
 
         sampAddChatMessage("[Bot] Dakal sabt shod! (" .. completedJobs .. "/4)", 0x00FF00)
 
@@ -296,7 +290,7 @@ function sampev.onServerMessage(color, text)
             completedJobs = 0
             local prevMode = config.settings.jobMode
             config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-            sendStats(prevMode:upper(), false)
+            sendStatsToBale(prevMode:upper(), false)
         end
 
         lua_thread.create(function() wait(2000); startJobCycle() end)
@@ -305,7 +299,6 @@ function sampev.onServerMessage(color, text)
     if text:find("یافت نشد") or text:find("هیچ") then
         config.settings.jobMode = (config.settings.jobMode == "repair") and "rob" or "repair"
         completedJobs = 0
-        hasTeleported = false
         lua_thread.create(function() wait(2000); startJobCycle() end)
     end
 end
@@ -343,64 +336,29 @@ function triggerClick(color)
     
     lua_thread.create(function()
         wait(config.settings.clickDelay or 180)
-        if currentColor == color and config.settings.autoClick then
-            isAutoClicking = true
-            if isPlayer then
-                sampSendClickPlayerTextDraw(wireID)
-            else
-                sampSendClickTextdraw(wireID)
-            end
-            isAutoClicking = false
-        end
+        if isPlayer then sampSendClickPlayerTextDraw(wireID) else sampSendClickTextdraw(wireID) end
     end)
 end
 
 function handleColorCheck(text)
-    if not text or text == "" then return end
-    local detected = nil
-    
-    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
-        detected = "GREEN"
-    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
-        detected = "RED"
-    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
-        detected = "BLUE"
-    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
-        detected = "YELLOW"
-    end
-
-    if detected then
-        isInMinigame = true
-        lastWireTime = os.clock()
-        currentColor = detected
-        triggerClick(detected)
-    end
+    local col = (text or ""):gsub("{.-}", ""):upper()
+    local c = col:find("GREEN") and "GREEN" or col:find("RED") and "RED" or col:find("BLUE") and "BLUE" or col:find("YELLOW") and "YELLOW"
+    if c then triggerClick(c) end
 end
 
-function saveLearnedID(color, id, isPlayer)
-    config.wires[color .. "_ID"] = id
-    config.wires[color .. "_IS_PLAYER"] = isPlayer
-    pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage(string.format("[Electrician] Saved {" .. (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00") .. "}%s {FFFFFF}!", color), -1)
+function sampev.onShowTextDraw(id, data) handleColorCheck(data.text)
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
 end
-
-function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
-
 function sampev.onSendClickTextDraw(id)
-    if isAutoClicking or not config.settings.autoClick then return end
-    if currentColor and config.wires[currentColor .. "_ID"] == -1 then
-        saveLearnedID(currentColor, id, false)
-    end
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
 end
-
 function sampev.onSendClickPlayerTextDraw(id)
-    if isAutoClicking or not config.settings.autoClick then return end
-    if currentColor and config.wires[currentColor .. "_ID"] == -1 then
-        saveLearnedID(currentColor, id, true)
-    end
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
 end
 
 main()
