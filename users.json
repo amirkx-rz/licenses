@@ -3,7 +3,13 @@
   "allowed_hwids": {
     "HWID--7903": {
       "owner": "Amir",
-      "status": true
+      "status": true,
+      "is_vip": true
+    },
+    "HWID-Partner-Sample": {
+      "owner": "Partner",
+      "status": true,
+      "is_vip": false
     }
   }
 }
