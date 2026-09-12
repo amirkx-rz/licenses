@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("1000.0.CLEAN_ART_SYNC")
+script_version("1000.0.MAIN_FIXED")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -15,10 +15,6 @@ local defaultConfig = {
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
-if not status or not res then
-    iniFile = "PrivateSettings.ini"
-    status, res = pcall(inicfg.load, defaultConfig, iniFile)
-end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -153,7 +149,7 @@ function sendStatsToBale(modeName, forceSend)
             end)
 
             local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\\n👤 Player: %s\\n🛠 Mode: %s\\n⚡️ Poles: %d\\n💰 Income: $%d", myName, pMode, pCount, pMoney)
-            local body = '{"chat_id":"' .. BALE_CHAT_ID .. '","text":"' .. rawText .. '"}'
+            local body = '{"chat_id":"' .. 1804721465 .. '","text":"' .. rawText .. '"}'
             
             local url = string.format("https://tapi.bale.ai/bot%s/sendMessage", BALE_BOT_TOKEN)
             
@@ -288,3 +284,6 @@ function sampev.onSendClickPlayerTextDraw(id)
     if not autoPilot then return end
     if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
 end
+
+-- این خط حیاتی بود که جا مانده بود و الان قرار گرفت!
+main()
