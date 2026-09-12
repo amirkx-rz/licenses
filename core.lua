@@ -36,7 +36,7 @@ local isInMinigame = false
 local lastWireTime = 0
 
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
-local BALE_CHAT_ID   = "ADAD_CHAT_ID_RA_INJA_BEGOZAR" -- <<<< عدد چت آیدی بله را بگذار
+local BALE_CHAT_ID   = "1804721465" -- <<<< عدد چت آیدی بله را بگذار
 
 function main()
     while not isSampAvailable() do wait(100) end
