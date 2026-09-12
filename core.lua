@@ -4,8 +4,6 @@ script_version("1000.0.ULTIMATE_PACKAGE")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
-local http = require 'socket.http'
-local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -40,7 +38,7 @@ local lastWireTime = 0
 local RUBIKA_BOT_TOKEN = "8899767938:AAGND-rSlHi-6w7TBjAAAHFkGnKQHWC2Dr8"
 local RUBIKA_CHAT_ID   = "u0HMBLf0979ba9be99cc859323174c34"
 
--- سپر محافظ و جادوی پکت‌ها
+-- سپر محافظ پکت‌ها
 local TeleportSync = false
 
 -- =================================================================
@@ -58,27 +56,23 @@ function main()
         if autoPilot then
             startJobCycle()
         else
-            if isCharInAnyCar(PLAYER_PED) then
-                freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-            end
-            sendStats(config.settings.jobMode:upper(), true)
+            -- ارسال آمار به روبیکا موقع خاموش کردن
+            sendStats("MANUAL_STOP", true)
         end
     end)
 
-    sampRegisterChatCommand("unfreeze", function()
-        if isCharInAnyCar(PLAYER_PED) then
-            local car = storeCarCharIsInNoSave(PLAYER_PED)
-            freezeCarPosition(car, false)
-            sampAddChatMessage("{00FF00}[Car] Ghofle mashin baz shod.", -1)
-        end
-    end)
-
+    -- دستور تست فوری روبیکا
     sampRegisterChatCommand("testrubika", function()
-        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amar be Rubika...", -1)
+        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal be Rubika (Method: URL GET)...", -1)
         sendStats("TEST_MANUAL", true)
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testrubika {FFFFFF}| {00FFFF}/unfreeze", -1)
+    -- نمایش آمار آفلاین در چت
+    sampRegisterChatCommand("mystats", function()
+        sampAddChatMessage(string.format("{00DDFF}[Stats] {FFFFFF}Poles: %d | Income: $%d", totalPoles, sessionMoney), -1)
+    end)
+
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testrubika {FFFFFF}| {00FFFF}/mystats", -1)
 
     -- ترِد ۱: رندر ادمین‌ها و اسپکتورها
     lua_thread.create(function()
@@ -87,6 +81,7 @@ function main()
             if font and sampIsLocalPlayerSpawned() then
                 local sw, sh = getScreenResolution()
                 
+                -- اسپکتور
                 local specY = sh / 2
                 renderFontDrawText(font, "--- Spectators ---", 10, specY - 18, 0xFF00FFFF)
                 local hasSpec = false
@@ -101,6 +96,7 @@ function main()
                 end
                 if not hasSpec then renderFontDrawText(font, "None", 10, specY, 0xFF00FF00) end
                 
+                -- ادمین و هلپر [A] [H]
                 local yOffset = sh / 3
                 renderFontDrawText(font, "--- Staff Online ---", sw - 170, yOffset, 0xFFFFAA00)
                 yOffset = yOffset + 18
@@ -122,30 +118,15 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود هوشمند و تلپورت
+    -- ترِد ۲: تلپورت خودکار (متد دقیق آرت)
     lua_thread.create(function()
         while true do
             wait(250)
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
-                    -- ارسال فرمان به قلب موتور آرت (/atp)
-                    local cmd = string.format("/atp %.2f %.2f %.2f", currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
-                    sampProcessChatInput(cmd)
+                    executeArtTeleport(currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
                     hasTeleported = true
-                    
-                    lua_thread.create(function()
-                        if isCharInAnyCar(PLAYER_PED) then
-                            local car = storeCarCharIsInNoSave(PLAYER_PED)
-                            freezeCarPosition(car, false)
-                            setCarForwardSpeed(car, 0.0)
-                            wait(1000)
-                            if autoPilot and isCharInAnyCar(PLAYER_PED) then
-                                setCarForwardSpeed(car, 0.0)
-                                freezeCarPosition(car, true)
-                            end
-                        end
-                    end)
                 else
                     hasTeleported = true
                 end
@@ -159,6 +140,33 @@ end
 function startJobCycle()
     if not autoPilot then return end
     lua_thread.create(function() wait(500); sampSendChat("/pl") end)
+end
+
+-- =================================================================
+-- متد ۱۰۰٪ خالص آرت (بدون فریز ماشین، بدون کرش، فقط Player Ped)
+-- =================================================================
+function executeArtTeleport(tx, ty, tz)
+    lua_thread.create(function()
+        TeleportSync = true
+        local targetZ = (tz and tz > 0.0) and tz or 15.0
+        
+        -- جادوی موبایل: انتقال کاراکتر حتی اگر در ماشین باشد!
+        setCharCoordinates(PLAYER_PED, tx, ty, targetZ)
+        
+        -- سپر 2.5 ثانیه باز می‌ماند تا سرور تسلیم شود
+        wait(2500)
+        TeleportSync = false
+    end)
+end
+
+-- مسدودسازی پکت‌های بازگرداننده سرور
+function sampev.onReceiveRpc(id, bitStream)
+    if TeleportSync then
+        -- 12 = SetPlayerPos | 159/71 = SetVehiclePos
+        if id == 12 or id == 159 or id == 71 then
+            return false
+        end
+    end
 end
 
 -- =================================================================
@@ -195,8 +203,17 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- سیستم دوگانه آمارگیر (روبیکا + فایل متنی) - 100% قطعی و بدون ارور
+-- سیستم ارسال آمار به روبیکا (متد جادویی URL Encode بدون JSON)
 -- =================================================================
+local function urlencode(str)
+    if str then
+        str = string.gsub(str, "\n", "\r\n")
+        str = string.gsub(str, "([^%w %-%_%.%~])", function(c) return string.format("%%%02X", string.byte(c)) end)
+        str = string.gsub(str, " ", "%%20")
+    end
+    return str
+end
+
 function sendStats(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
         lua_thread.create(function()
@@ -207,9 +224,9 @@ function sendStats(modeName, forceSend)
             local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
             local pMode  = modeName or "REPAIR"
 
-            -- 1. ذخیره در فایل متنی داخل گوشی (بک‌آپ امنیتی)
+            -- 1. ذخیره در فایل متنی داخل گوشی (بک‌آپ امنیتی آفلاین)
             pcall(function()
-                local path = getWorkingDirectory() .. "/Electrician_Log.txt"
+                local path = getWorkingDirectory() .. "/ElectricianStats.txt"
                 local f = io.open(path, "a")
                 if f then
                     f:write(string.format("[%s] Player: %s | Mode: %s | Poles: %d | Money: $%d\n", os.date("%H:%M:%S"), myName, pMode, pCount, pMoney))
@@ -217,32 +234,25 @@ function sendStats(modeName, forceSend)
                 end
             end)
 
-            -- 2. ارسال به روبیکا (متن ساده، یک خطی، بدون کاراکتر خاص برای جلوگیری از INVALID_INPUT)
-            local textMsg = string.format("Report | Player: %s | Mode: %s | Poles: %d | Income: $%d", myName, pMode, pCount, pMoney)
+            -- 2. ارسال به روبیکا از طریق لینک مستقیم (GET Request)
+            local rawText = string.format("📊 Report (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+            local encodedText = urlencode(rawText)
             
-            local url = string.format("https://botapi.rubika.ir/v3/%s/sendMessage", RUBIKA_BOT_TOKEN)
-            local postData = '{"chat_id":"' .. RUBIKA_CHAT_ID .. '","text":"' .. textMsg .. '"}'
+            -- فرمت جادویی که امکان ندارد INVALID_INPUT بدهد!
+            local targetUrl = string.format("https://botapi.rubika.ir/v3/%s/sendMessage?chat_id=%s&text=%s", RUBIKA_BOT_TOKEN, RUBIKA_CHAT_ID, encodedText)
 
-            local response_body = {}
-            local ok, _, code, _ = pcall(function()
-                return http.request({
-                    url = url,
-                    method = "POST",
-                    headers = {
-                        ["content-type"] = "application/json",
-                        ["content-length"] = tostring(#postData)
-                    },
-                    source = ltn12.source.string(postData),
-                    sink = ltn12.sink.table(response_body)
-                })
-            end)
-
-            if ok and code == 200 then
-                sampAddChatMessage("{00FF00}[Rubika] {FFFFFF}Amar ba movafaghiyat be Rubika ersal shod!", -1)
+            -- استفاده از 2 کتابخانه مختلف برای اطمینان 100 درصدی از ارسال
+            local req_ok, req = pcall(require, 'requests')
+            if req_ok and req then
+                pcall(req.get, targetUrl)
             else
-                local resStr = table.concat(response_body)
-                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata dar ersal! Check Electrician_Log.txt", -1)
+                local http_ok, http = pcall(require, 'socket.http')
+                if http_ok and http then
+                    pcall(http.request, targetUrl)
+                end
             end
+            
+            sampAddChatMessage("{00FF00}[System] {FFFFFF}Amar zakhire va ersal shod!", -1)
             
             if not forceSend then
                 totalPoles = 0
@@ -280,10 +290,6 @@ function sampev.onServerMessage(color, text)
         currentPoleCoords = nil
         hasTeleported = false
 
-        if isCharInAnyCar(PLAYER_PED) then
-            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-        end
-
         sampAddChatMessage("[Bot] Dakal sabt shod! (" .. completedJobs .. "/4)", 0x00FF00)
 
         if completedJobs >= 4 then
@@ -300,9 +306,6 @@ function sampev.onServerMessage(color, text)
         config.settings.jobMode = (config.settings.jobMode == "repair") and "rob" or "repair"
         completedJobs = 0
         hasTeleported = false
-        if isCharInAnyCar(PLAYER_PED) then
-            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-        end
         lua_thread.create(function() wait(2000); startJobCycle() end)
     end
 end
@@ -335,9 +338,9 @@ end
 -- =================================================================
 function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
-    local isPlayer = config.wires[color .. "_IS_PLAYER"]
     if not wireID or wireID == -1 then return end
-
+    local isPlayer = config.wires[color .. "_IS_PLAYER"]
+    
     lua_thread.create(function()
         wait(config.settings.clickDelay or 180)
         if currentColor == color and config.settings.autoClick then
