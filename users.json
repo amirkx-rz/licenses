@@ -6,8 +6,13 @@
       "status": true,
       "is_vip": true
     },
-    "HWID-Partner-Sample": {
-      "owner": "Partner",
+    "HWID--BOE4EC58": {
+      "owner": "Parsa",
+      "status": true,
+      "is_vip": false
+    },
+    "HWID--FBA3BD9C": {
+      "owner": "Hassan",
       "status": true,
       "is_vip": false
     }
