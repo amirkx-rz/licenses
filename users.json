@@ -6,7 +6,7 @@
       "status": true,
       "is_vip": true
     },
-    "HWID--B0E4EC58": {
+    "HWID--BOE4EC58": {
       "owner": "Parsa",
       "status": true,
       "is_vip": false
@@ -14,6 +14,31 @@
     "HWID--FBA3BD9C": {
       "owner": "Hassan",
       "status": true,
+      "is_vip": false
+    },
+    "HWID--41BCC89B": {
+      "owner": "Mohammad",
+      "status": true,
+      "is_vip": false
+    },
+    "HWID-SLOT-1": {
+      "owner": "Slot1_Name",
+      "status": false,
+      "is_vip": false
+    },
+    "HWID-SLOT-2": {
+      "owner": "Slot2_Name",
+      "status": false,
+      "is_vip": false
+    },
+    "HWID-SLOT-3": {
+      "owner": "Slot3_Name",
+      "status": false,
+      "is_vip": false
+    },
+    "HWID-SLOT-4": {
+      "owner": "Slot4_Name",
+      "status": false,
       "is_vip": false
     }
   }
