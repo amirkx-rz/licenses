@@ -1,9 +1,11 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("1000.0.RUBIKA_VICTORY")
+script_version("1000.0.ULTIMATE_PACKAGE")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
+local http = require 'socket.http'
+local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -13,6 +15,10 @@ local defaultConfig = {
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
+if not status or not res then
+    iniFile = "PrivateSettings.ini"
+    status, res = pcall(inicfg.load, defaultConfig, iniFile)
+end
 if status and res then config = res else config = defaultConfig end
 
 local autoPilot = false
@@ -34,6 +40,9 @@ local lastWireTime = 0
 local RUBIKA_BOT_TOKEN = "8899767938:AAGND-rSlHi-6w7TBjAAAHFkGnKQHWC2Dr8"
 local RUBIKA_CHAT_ID   = "u0HMBLf0979ba9be99cc859323174c34"
 
+-- سپر محافظ و جادوی پکت‌ها
+local TeleportSync = false
+
 -- =================================================================
 -- تابع اصلی (Main)
 -- =================================================================
@@ -52,7 +61,7 @@ function main()
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
             end
-            sendStatsToRubika(config.settings.jobMode:upper(), false)
+            sendStats(config.settings.jobMode:upper(), true)
         end
     end)
 
@@ -64,10 +73,9 @@ function main()
         end
     end)
 
-    -- دستور تست فوری روبیکا
     sampRegisterChatCommand("testrubika", function()
-        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal be Rubika...", -1)
-        sendStatsToRubika("TEST_MANUAL", true)
+        sampAddChatMessage("{00DDFF}[Test] Dar hale ersal amar be Rubika...", -1)
+        sendStats("TEST_MANUAL", true)
     end)
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/testrubika {FFFFFF}| {00FFFF}/unfreeze", -1)
@@ -114,13 +122,14 @@ function main()
         end
     end)
 
-    -- ترِد ۲: فرود هوشمند و ارسال فرمان به موتور آرت (/atp)
+    -- ترِد ۲: فرود هوشمند و تلپورت
     lua_thread.create(function()
         while true do
             wait(250)
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
+                    -- ارسال فرمان به قلب موتور آرت (/atp)
                     local cmd = string.format("/atp %.2f %.2f %.2f", currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
                     sampProcessChatInput(cmd)
                     hasTeleported = true
@@ -186,9 +195,9 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- شاه‌کلید روبیکا: ارسال ۱۰۰٪ بدون باگ (با حل باگ LuaSocket و اینتر)
+-- سیستم دوگانه آمارگیر (روبیکا + فایل متنی) - 100% قطعی و بدون ارور
 -- =================================================================
-function sendStatsToRubika(modeName, forceSend)
+function sendStats(modeName, forceSend)
     if (totalPoles > 0 or forceSend) then
         lua_thread.create(function()
             local myName = "Player"
@@ -198,36 +207,41 @@ function sendStatsToRubika(modeName, forceSend)
             local pMoney = math.floor(sessionMoney > 0 and sessionMoney or 11700)
             local pMode  = modeName or "REPAIR"
 
-            -- ساخت متن پیام
-            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d",
-                myName, pMode, pCount, pMoney)
+            -- 1. ذخیره در فایل متنی داخل گوشی (بک‌آپ امنیتی)
+            pcall(function()
+                local path = getWorkingDirectory() .. "/Electrician_Log.txt"
+                local f = io.open(path, "a")
+                if f then
+                    f:write(string.format("[%s] Player: %s | Mode: %s | Poles: %d | Money: $%d\n", os.date("%H:%M:%S"), myName, pMode, pCount, pMoney))
+                    f:close()
+                end
+            end)
 
-            -- حیاتی‌ترین خط برای JSON: تبدیل اینترها به فرمت استاندارد
-            local safeText = rawText:gsub("\n", "\\n"):gsub('"', '\\"')
+            -- 2. ارسال به روبیکا (متن ساده، یک خطی، بدون کاراکتر خاص برای جلوگیری از INVALID_INPUT)
+            local textMsg = string.format("Report | Player: %s | Mode: %s | Poles: %d | Income: $%d", myName, pMode, pCount, pMoney)
             
             local url = string.format("https://botapi.rubika.ir/v3/%s/sendMessage", RUBIKA_BOT_TOKEN)
-            local postData = '{"chat_id":"' .. RUBIKA_CHAT_ID .. '","text":"' .. safeText .. '"}'
+            local postData = '{"chat_id":"' .. RUBIKA_CHAT_ID .. '","text":"' .. textMsg .. '"}'
 
-            local http = require 'socket.http'
-            local ltn12 = require 'ltn12'
             local response_body = {}
-            
-            -- حیاتی‌ترین خط برای LuaSocket: کلمات Header باید حتماً حروف کوچک باشند!
-            local _, code, headers = http.request({
-                url = url,
-                method = "POST",
-                headers = {
-                    ["content-type"] = "application/json",
-                    ["content-length"] = tostring(#postData)
-                },
-                source = ltn12.source.string(postData),
-                sink = ltn12.sink.table(response_body)
-            })
+            local ok, _, code, _ = pcall(function()
+                return http.request({
+                    url = url,
+                    method = "POST",
+                    headers = {
+                        ["content-type"] = "application/json",
+                        ["content-length"] = tostring(#postData)
+                    },
+                    source = ltn12.source.string(postData),
+                    sink = ltn12.sink.table(response_body)
+                })
+            end)
 
-            if code == 200 then
+            if ok and code == 200 then
                 sampAddChatMessage("{00FF00}[Rubika] {FFFFFF}Amar ba movafaghiyat be Rubika ersal shod!", -1)
             else
-                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata! Status: " .. tostring(code), -1)
+                local resStr = table.concat(response_body)
+                sampAddChatMessage("{FF0000}[Rubika] {FFFFFF}Khata dar ersal! Check Electrician_Log.txt", -1)
             end
             
             if not forceSend then
@@ -276,7 +290,7 @@ function sampev.onServerMessage(color, text)
             completedJobs = 0
             local prevMode = config.settings.jobMode
             config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-            sendStatsToRubika(prevMode:upper(), false)
+            sendStats(prevMode:upper(), false)
         end
 
         lua_thread.create(function() wait(2000); startJobCycle() end)
@@ -294,7 +308,7 @@ function sampev.onServerMessage(color, text)
 end
 
 -- =================================================================
--- دیالوگ‌ها و حل سیم‌ها (کاملا دست‌نخورده از کد طلایی)
+-- دیالوگ‌ها
 -- =================================================================
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot then return end
@@ -316,20 +330,9 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
     end
 end
 
-function cleanText(text)
-    if not text then return "" end
-    return text:gsub("{.-}", ""):gsub("~.-~", ""):upper()
-end
-
-function detectColorFromText(text)
-    text = cleanText(text)
-    if text:find("GREEN") then return "GREEN"
-    elseif text:find("RED") then return "RED"
-    elseif text:find("BLUE") then return "BLUE"
-    elseif text:find("YELLOW") then return "YELLOW" end
-    return nil
-end
-
+-- =================================================================
+-- مینی‌گیم سیم‌ها
+-- =================================================================
 function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
@@ -350,12 +353,24 @@ function triggerClick(color)
 end
 
 function handleColorCheck(text)
-    local col = detectColorFromText(text)
-    if col then
+    if not text or text == "" then return end
+    local detected = nil
+    
+    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
+        detected = "GREEN"
+    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
+        detected = "RED"
+    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
+        detected = "BLUE"
+    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
+        detected = "YELLOW"
+    end
+
+    if detected then
         isInMinigame = true
         lastWireTime = os.clock()
-        currentColor = col
-        triggerClick(col)
+        currentColor = detected
+        triggerClick(detected)
     end
 end
 
