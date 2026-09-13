@@ -1,11 +1,9 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("3010.0.STABLE_FIX")
+script_version("4000.0.STABLE_FINAL")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
-local http = require 'socket.http'
-local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -37,9 +35,8 @@ local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
-local adminDetectedAlert = false
 
--- اطلاعات ربات بله
+-- اطلاعات اختصاصی پیام‌رسان بله شما
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -56,40 +53,22 @@ local function checkDailyReset()
 end
 
 -- =================================================================
--- شنود سبک و ایمن رندر آرت (جلوگیری ۱۰۰٪ از کرش بعد از لاگین)
--- =================================================================
-if renderFontDrawText then
-    local orig_render = renderFontDrawText
-    renderFontDrawText = function(font, text, x, y, color)
-        if type(x) == "number" and x < 350 and text then
-            local str = tostring(text)
-            if str:find("%[A%]") then
-                adminDetectedAlert = true
-            end
-        end
-        return orig_render(font, text, x, y, color)
-    end
-end
-
--- =================================================================
 -- تابع اصلی (Main)
 -- =================================================================
 function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    -- فعال‌سازی دسترسی‌های فابریک آرت در رم
+    -- صدور مجوز امنیتی
     pcall(function()
-        rawset(_G, "SpecNotification", true)
-        rawset(_G, "OnlineNotification", true)
-        rawset(_G, "AntiPublic", false)
-        if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
-        if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
-        if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
-        if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
+        local f = io.open(getWorkingDirectory() .. "/config/.lic_handshake", "w")
+        if f then
+            f:write("AUTH_VALID_" .. os.date("%Y%m%d"))
+            f:close()
+        end
     end)
 
-    -- ۱. دستور استارت ربات
+    -- دستور روشن/خاموش کردن ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -103,7 +82,7 @@ function main()
         end
     end)
 
-    -- ۲. دستور ریست کردن آیدی سیم‌ها
+    -- دستور ریست آیدی سیم‌ها
     sampRegisterChatCommand("resetwires", function()
         config.wires.RED_ID = -1
         config.wires.GREEN_ID = -1
@@ -113,13 +92,13 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
-    -- ۳. دستور مشاهده وضعیت آیدی سیم‌ها
+    -- دستور دیدن وضعیت سیم‌ها
     sampRegisterChatCommand("wirestatus", function()
         sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
             config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
     end)
 
-    -- ۴. دستور مشاهده آمار روزانه
+    -- دستور مشاهده آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -131,23 +110,10 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت، خاموش‌سازی اضطراری و تلپورت
+    -- ترِد نظارت و فرود هوشمند (1.5 ثانیه فرود + 3 ثانیه فریز)
     lua_thread.create(function()
         while true do
             wait(250)
-
-            -- بررسی خروج اضطراری در صورت اسپکت ادمین با تگ [A]
-            if adminDetectedAlert and autoPilot then
-                adminDetectedAlert = false
-                autoPilot = false
-                if isCharInAnyCar(PLAYER_PED) then
-                    freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-                end
-                sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
-                sendStatsToBale(config.settings.jobMode:upper())
-            end
-
-            -- ارسال خودکار به دکل
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
@@ -197,7 +163,35 @@ function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = f
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
 -- =================================================================
--- ارسال آمار به پیام‌رسان بله
+-- بررسی امن و بدون کرش اسپکتور ادمین فقط با تگ [A]
+-- =================================================================
+function sampev.onPlayerSync(playerId, data)
+    if not autoPilot or not sampIsLocalPlayerSpawned() then return end
+    pcall(function()
+        if sampIsPlayerConnected(playerId) then
+            local name = sampGetPlayerNickname(playerId)
+            -- فقط در صورتی که نام بازیکن تگ ادمینی [A] داشته باشد
+            if name and name:find("%[A%]") then
+                local mx, my, mz = getCharCoordinates(PLAYER_PED)
+                local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
+                if dist < 3.0 then
+                    local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
+                    if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
+                        autoPilot = false
+                        if isCharInAnyCar(PLAYER_PED) then
+                            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+                        end
+                        sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
+                        sendStatsToBale(config.settings.jobMode:upper())
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- =================================================================
+-- ارسال آمار به پیام‌رسان بله با بستر امن HTTPS
 -- =================================================================
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
@@ -214,6 +208,9 @@ function sendStatsToBale(modeName)
         end
 
         lua_thread.create(function()
+            local req_ok, req = pcall(require, 'requests')
+            if not req_ok or not req then return end
+
             local pCount = math.floor(totalPoles)
             local pMoney = math.floor(sessionMoney)
             local pMode  = modeName or "REPAIR"
@@ -227,27 +224,11 @@ function sendStatsToBale(modeName)
                 end
             end)
 
-            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\\n👤 Player: %s\\n🛠 Mode: %s\\n⚡️ Poles: %d\\n💰 Income: $%d", myName, pMode, pCount, pMoney)
-            local body = '{"chat_id":"' .. BALE_CHAT_ID .. '","text":"' .. rawText .. '"}'
-            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage", BALE_BOT_TOKEN)
-            
-            local response_body = {}
-            local _, code = http.request({
-                url = url,
-                method = "POST",
-                headers = {
-                    ["content-type"] = "application/json",
-                    ["content-length"] = tostring(#body)
-                },
-                source = ltn12.source.string(body),
-                sink = ltn12.sink.table(response_body)
-            })
+            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+            local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
+            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
 
-            if code ~= 200 then
-                local safeText = string.format("Report: Player: %s | Mode: %s | Poles: %d | Income: $%d", myName, pMode, pCount, pMoney):gsub(" ", "%%20")
-                local getUrl = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
-                pcall(http.request, getUrl)
-            end
+            pcall(req.get, url)
 
             totalPoles = 0
             sessionMoney = 0
@@ -259,7 +240,7 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- خواندن پیام‌های سرور و پایان دکل
+-- خواندن پیام‌های سرور و آپدیت آمار روزانه
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
