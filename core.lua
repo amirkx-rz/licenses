@@ -1,8 +1,8 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("5000.0.CRASH_PROOF_INIT")
+script_version("5500.0.ABSOLUTE_STABLE")
 
--- ۱. صدور آنی کلید لایسنس در همان خط اول
+-- ۱. صدور فوری کلید لایسنس
 pcall(function()
     local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
     local p2 = getWorkingDirectory() .. "/.lic_handshake"
@@ -14,8 +14,6 @@ end)
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
-local http = require 'socket.http'
-local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -25,29 +23,26 @@ local defaultConfig = {
     daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 }
 
--- لودینگ ایمن و چندلایه کانفیگ (جلوگیری ۱۰۰٪ از کرش در گوشی‌های جدید)
+-- لودینگ کاملاً ایمن و ضد خطا
 local config = defaultConfig
 pcall(function()
     local loaded = inicfg.load(defaultConfig, iniFile)
     if not loaded then
         loaded = inicfg.load(defaultConfig, "PrivateSettings.ini")
     end
-    if loaded then
-        config = loaded
-    end
+    if loaded then config = loaded end
 end)
 
--- اعتبارسنجی تک‌تک بخش‌ها تا در صورت ناقص بودن فایل روی گوشی دوستان کرش رخ ندهد
 config.wires = config.wires or defaultConfig.wires
 config.settings = config.settings or defaultConfig.settings
 config.stats = config.stats or defaultConfig.stats
-config.daily = config.daily or defaultConfig.daily
+config.daily = config.daily or { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 
 local autoPilot = false
 local currentPoleCoords = nil
 local completedJobs = 0
-local sessionMoney = config.stats.savedMoney or 0
-local totalPoles = config.stats.savedPoles or 0
+local sessionMoney = (config.stats and config.stats.savedMoney) or 0
+local totalPoles = (config.stats and config.stats.savedPoles) or 0
 local hasTeleported = false
 
 local currentColor = nil
@@ -63,10 +58,8 @@ local MY_OWN_NAME    = "Amir"
 -- بررسی و ریست خودکار آمار روزانه
 local function checkDailyReset()
     local today = os.date("%Y-%m-%d")
-    if config.daily.date ~= today then
-        config.daily.date = today
-        config.daily.poles = 0
-        config.daily.money = 0
+    if not config.daily or config.daily.date ~= today then
+        config.daily = { date = today, poles = 0, money = 0 }
         pcall(inicfg.save, config, iniFile)
     end
 end
@@ -78,7 +71,7 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    -- فعال‌سازی دائمی ویجت‌های آرت در رم
+    -- فعال‌سازی منوهای فابریک آرت در رم
     pcall(function()
         rawset(_G, "SpecNotification", true)
         rawset(_G, "OnlineNotification", true)
@@ -89,19 +82,7 @@ function main()
         if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
     end)
 
-    -- ترِد تمدید کلید لایسنس
-    lua_thread.create(function()
-        while true do
-            wait(1000)
-            pcall(function()
-                local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
-                local f1 = io.open(p1, "w")
-                if f1 then f1:write("AUTH_VALID_" .. os.date("%Y%m%d")) f1:close() end
-            end)
-        end
-    end)
-
-    -- دستور روشن/خاموش ربات
+    -- ثبت دستورات چت
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -115,7 +96,6 @@ function main()
         end
     end)
 
-    -- دستور ریست آیدی سیم‌ها
     sampRegisterChatCommand("resetwires", function()
         config.wires.RED_ID = -1
         config.wires.GREEN_ID = -1
@@ -125,13 +105,11 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
-    -- دستور وضعیت سیم‌ها
     sampRegisterChatCommand("wirestatus", function()
         sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
             config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
     end)
 
-    -- دستور آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -143,7 +121,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت و فرود هوشمند (1.5 ثانیه فرود + 3 ثانیه فریز)
+    -- ترِد نظارت ربات و ارسال مختصات به /atp
     lua_thread.create(function()
         while true do
             wait(250)
@@ -196,7 +174,34 @@ function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = f
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
 -- =================================================================
--- ارسال آمار به پیام‌رسان بله
+-- بررسی امن اسپکتور ادمین فقط با تگ [A]
+-- =================================================================
+function sampev.onPlayerSync(playerId, data)
+    if not autoPilot or not sampIsLocalPlayerSpawned() then return end
+    pcall(function()
+        if sampIsPlayerConnected(playerId) then
+            local name = sampGetPlayerNickname(playerId)
+            if name and name:find("%[A%]") then
+                local mx, my, mz = getCharCoordinates(PLAYER_PED)
+                local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
+                if dist < 3.0 then
+                    local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
+                    if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
+                        autoPilot = false
+                        if isCharInAnyCar(PLAYER_PED) then
+                            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+                        end
+                        sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
+                        sendStatsToBale(config.settings.jobMode:upper())
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- =================================================================
+-- ارسال ایمن آمار به بله (کاملاً ضد خطای wantread)
 -- =================================================================
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
@@ -217,6 +222,7 @@ function sendStatsToBale(modeName)
             local pMoney = math.floor(sessionMoney)
             local pMode  = modeName or "REPAIR"
 
+            -- ذخیره بک‌آپ آفلاین
             pcall(function()
                 local path = getWorkingDirectory() .. "/config/ElectricianStats.txt"
                 local f = io.open(path, "a")
@@ -226,12 +232,12 @@ function sendStatsToBale(modeName)
                 end
             end)
 
-            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
-            local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
-            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
-
+            -- ارسال ایمن با pcall به بله
             pcall(function()
                 local req = require 'requests'
+                local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+                local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
+                local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
                 req.get(url)
             end)
 
@@ -245,7 +251,7 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- تایید سرور و پایان دکل
+-- خواندن پیام‌های سرور و مدیریت کارها
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -406,6 +412,7 @@ function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
+
 function sampev.onSendClickTextDraw(id)
     if not autoPilot then return end
     if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
