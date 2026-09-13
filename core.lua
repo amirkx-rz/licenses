@@ -1,8 +1,8 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("4010.0.HANDSHAKE_INSTANT")
+script_version("5000.0.CRASH_PROOF_INIT")
 
--- ۱. صدور آنی کلید لایسنس در همان خط اول (قبل از هرگونه معطلی لاگین)
+-- ۱. صدور آنی کلید لایسنس در همان خط اول
 pcall(function()
     local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
     local p2 = getWorkingDirectory() .. "/.lic_handshake"
@@ -14,6 +14,8 @@ end)
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
+local http = require 'socket.http'
+local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -22,17 +24,24 @@ local defaultConfig = {
     stats = { savedPoles = 0, savedMoney = 0 },
     daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 }
-local config = nil
-local status, res = pcall(inicfg.load, defaultConfig, iniFile)
-if not status or not res then
-    iniFile = "PrivateSettings.ini"
-    status, res = pcall(inicfg.load, defaultConfig, iniFile)
-end
-if status and res then config = res else config = defaultConfig end
 
-if not config.daily then
-    config.daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
-end
+-- لودینگ ایمن و چندلایه کانفیگ (جلوگیری ۱۰۰٪ از کرش در گوشی‌های جدید)
+local config = defaultConfig
+pcall(function()
+    local loaded = inicfg.load(defaultConfig, iniFile)
+    if not loaded then
+        loaded = inicfg.load(defaultConfig, "PrivateSettings.ini")
+    end
+    if loaded then
+        config = loaded
+    end
+end)
+
+-- اعتبارسنجی تک‌تک بخش‌ها تا در صورت ناقص بودن فایل روی گوشی دوستان کرش رخ ندهد
+config.wires = config.wires or defaultConfig.wires
+config.settings = config.settings or defaultConfig.settings
+config.stats = config.stats or defaultConfig.stats
+config.daily = config.daily or defaultConfig.daily
 
 local autoPilot = false
 local currentPoleCoords = nil
@@ -46,7 +55,7 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات ربات بله
+-- اطلاعات اختصاصی ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -80,7 +89,7 @@ function main()
         if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
     end)
 
-    -- ترِد تمدید کلید لایسنس تا آرت هرگز منوها را خاموش نکند
+    -- ترِد تمدید کلید لایسنس
     lua_thread.create(function()
         while true do
             wait(1000)
@@ -92,7 +101,7 @@ function main()
         end
     end)
 
-    -- دستورات چت
+    -- دستور روشن/خاموش ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -106,6 +115,7 @@ function main()
         end
     end)
 
+    -- دستور ریست آیدی سیم‌ها
     sampRegisterChatCommand("resetwires", function()
         config.wires.RED_ID = -1
         config.wires.GREEN_ID = -1
@@ -115,11 +125,13 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
+    -- دستور وضعیت سیم‌ها
     sampRegisterChatCommand("wirestatus", function()
         sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
             config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
     end)
 
+    -- دستور آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -184,34 +196,7 @@ function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = f
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
 -- =================================================================
--- بررسی امن اسپکتور ادمین فقط با تگ [A]
--- =================================================================
-function sampev.onPlayerSync(playerId, data)
-    if not autoPilot or not sampIsLocalPlayerSpawned() then return end
-    pcall(function()
-        if sampIsPlayerConnected(playerId) then
-            local name = sampGetPlayerNickname(playerId)
-            if name and name:find("%[A%]") then
-                local mx, my, mz = getCharCoordinates(PLAYER_PED)
-                local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
-                if dist < 3.0 then
-                    local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
-                    if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
-                        autoPilot = false
-                        if isCharInAnyCar(PLAYER_PED) then
-                            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-                        end
-                        sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
-                        sendStatsToBale(config.settings.jobMode:upper())
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- =================================================================
--- ارسال آمار به پیام‌رسان بله با HTTPS
+-- ارسال آمار به پیام‌رسان بله
 -- =================================================================
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
@@ -228,9 +213,6 @@ function sendStatsToBale(modeName)
         end
 
         lua_thread.create(function()
-            local req_ok, req = pcall(require, 'requests')
-            if not req_ok or not req then return end
-
             local pCount = math.floor(totalPoles)
             local pMoney = math.floor(sessionMoney)
             local pMode  = modeName or "REPAIR"
@@ -248,7 +230,10 @@ function sendStatsToBale(modeName)
             local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
             local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
 
-            pcall(req.get, url)
+            pcall(function()
+                local req = require 'requests'
+                req.get(url)
+            end)
 
             totalPoles = 0
             sessionMoney = 0
