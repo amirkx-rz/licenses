@@ -1,6 +1,16 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("4000.0.STABLE_FINAL")
+script_version("4010.0.HANDSHAKE_INSTANT")
+
+-- ۱. صدور آنی کلید لایسنس در همان خط اول (قبل از هرگونه معطلی لاگین)
+pcall(function()
+    local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
+    local p2 = getWorkingDirectory() .. "/.lic_handshake"
+    local f1 = io.open(p1, "w")
+    if f1 then f1:write("AUTH_VALID_" .. os.date("%Y%m%d")) f1:close() end
+    local f2 = io.open(p2, "w")
+    if f2 then f2:write("AUTH_VALID_" .. os.date("%Y%m%d")) f2:close() end
+end)
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -36,7 +46,7 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات اختصاصی پیام‌رسان بله شما
+-- اطلاعات ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -59,16 +69,30 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    -- صدور مجوز امنیتی
+    -- فعال‌سازی دائمی ویجت‌های آرت در رم
     pcall(function()
-        local f = io.open(getWorkingDirectory() .. "/config/.lic_handshake", "w")
-        if f then
-            f:write("AUTH_VALID_" .. os.date("%Y%m%d"))
-            f:close()
+        rawset(_G, "SpecNotification", true)
+        rawset(_G, "OnlineNotification", true)
+        rawset(_G, "AntiPublic", false)
+        if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
+        if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
+        if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
+        if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
+    end)
+
+    -- ترِد تمدید کلید لایسنس تا آرت هرگز منوها را خاموش نکند
+    lua_thread.create(function()
+        while true do
+            wait(1000)
+            pcall(function()
+                local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
+                local f1 = io.open(p1, "w")
+                if f1 then f1:write("AUTH_VALID_" .. os.date("%Y%m%d")) f1:close() end
+            end)
         end
     end)
 
-    -- دستور روشن/خاموش کردن ربات
+    -- دستورات چت
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -82,7 +106,6 @@ function main()
         end
     end)
 
-    -- دستور ریست آیدی سیم‌ها
     sampRegisterChatCommand("resetwires", function()
         config.wires.RED_ID = -1
         config.wires.GREEN_ID = -1
@@ -92,13 +115,11 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
-    -- دستور دیدن وضعیت سیم‌ها
     sampRegisterChatCommand("wirestatus", function()
         sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
             config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
     end)
 
-    -- دستور مشاهده آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -163,14 +184,13 @@ function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = f
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
 -- =================================================================
--- بررسی امن و بدون کرش اسپکتور ادمین فقط با تگ [A]
+-- بررسی امن اسپکتور ادمین فقط با تگ [A]
 -- =================================================================
 function sampev.onPlayerSync(playerId, data)
     if not autoPilot or not sampIsLocalPlayerSpawned() then return end
     pcall(function()
         if sampIsPlayerConnected(playerId) then
             local name = sampGetPlayerNickname(playerId)
-            -- فقط در صورتی که نام بازیکن تگ ادمینی [A] داشته باشد
             if name and name:find("%[A%]") then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
@@ -191,7 +211,7 @@ function sampev.onPlayerSync(playerId, data)
 end
 
 -- =================================================================
--- ارسال آمار به پیام‌رسان بله با بستر امن HTTPS
+-- ارسال آمار به پیام‌رسان بله با HTTPS
 -- =================================================================
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
@@ -240,7 +260,7 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- خواندن پیام‌های سرور و آپدیت آمار روزانه
+-- تایید سرور و پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
