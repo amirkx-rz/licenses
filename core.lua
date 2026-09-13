@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("3000.0.CLOUD_ONLY_UPDATE")
+script_version("3010.0.STABLE_FIX")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -37,6 +37,7 @@ local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
+local adminDetectedAlert = false
 
 -- اطلاعات ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
@@ -55,23 +56,15 @@ local function checkDailyReset()
 end
 
 -- =================================================================
--- شنود مستقیم رندر آرت از داخل core.lua (توقف فقط با تگ [A])
+-- شنود سبک و ایمن رندر آرت (جلوگیری ۱۰۰٪ از کرش بعد از لاگین)
 -- =================================================================
-local lastAdminAlert = 0
 if renderFontDrawText then
     local orig_render = renderFontDrawText
     renderFontDrawText = function(font, text, x, y, color)
-        local str = tostring(text or "")
-        -- اگر متن در سمت چپ صفحه باشد (محل اسپکتورهای آرت) و تگ [A] داشته باشد:
-        if x and x < 350 and str:find("%[A%]") then
-            if autoPilot and (os.clock() - lastAdminAlert > 5.0) then
-                lastAdminAlert = os.clock()
-                autoPilot = false
-                if isCharInAnyCar(PLAYER_PED) then
-                    freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-                end
-                sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
-                sendStatsToBale(config.settings.jobMode:upper())
+        if type(x) == "number" and x < 350 and text then
+            local str = tostring(text)
+            if str:find("%[A%]") then
+                adminDetectedAlert = true
             end
         end
         return orig_render(font, text, x, y, color)
@@ -85,7 +78,7 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    -- فعال‌سازی خودکار تمام تیک‌های ادمین، هلپر، هاستر و VIP آرت
+    -- فعال‌سازی دسترسی‌های فابریک آرت در رم
     pcall(function()
         rawset(_G, "SpecNotification", true)
         rawset(_G, "OnlineNotification", true)
@@ -96,7 +89,7 @@ function main()
         if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
     end)
 
-    -- ثبت دستورات
+    -- ۱. دستور استارت ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -110,7 +103,23 @@ function main()
         end
     end)
 
-    -- دستور مشاهده آمار روزانه
+    -- ۲. دستور ریست کردن آیدی سیم‌ها
+    sampRegisterChatCommand("resetwires", function()
+        config.wires.RED_ID = -1
+        config.wires.GREEN_ID = -1
+        config.wires.BLUE_ID = -1
+        config.wires.YELLOW_ID = -1
+        pcall(inicfg.save, config, iniFile)
+        sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
+    end)
+
+    -- ۳. دستور مشاهده وضعیت آیدی سیم‌ها
+    sampRegisterChatCommand("wirestatus", function()
+        sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
+            config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
+    end)
+
+    -- ۴. دستور مشاهده آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -120,12 +129,25 @@ function main()
         sampAddChatMessage("{00DDFF}=======================================================", -1)
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/daily", -1)
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت و فرود هوشمند (1.5 ثانیه فرود + 3 ثانیه فریز)
+    -- ترِد نظارت، خاموش‌سازی اضطراری و تلپورت
     lua_thread.create(function()
         while true do
             wait(250)
+
+            -- بررسی خروج اضطراری در صورت اسپکت ادمین با تگ [A]
+            if adminDetectedAlert and autoPilot then
+                adminDetectedAlert = false
+                autoPilot = false
+                if isCharInAnyCar(PLAYER_PED) then
+                    freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+                end
+                sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
+                sendStatsToBale(config.settings.jobMode:upper())
+            end
+
+            -- ارسال خودکار به دکل
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
@@ -139,7 +161,7 @@ function main()
                             freezeCarPosition(car, false)
                             setCarForwardSpeed(car, 0.0)
                             
-                            wait(1500) -- ۱.۵ ثانیه صبر برای نشستن چرخ‌ها
+                            wait(1500)
                             
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
                                 setCarForwardSpeed(car, 0.0)
@@ -237,7 +259,7 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- خواندن پیام‌های سرور و آپدیت آمار روزانه
+-- خواندن پیام‌های سرور و پایان دکل
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
