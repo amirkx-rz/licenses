@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("1020.0.SKILL_DETECTOR")
+script_version("3000.0.CLOUD_ONLY_UPDATE")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -10,8 +10,9 @@ local ltn12 = require 'ltn12'
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
     wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false },
-    settings = { autoClick = true, jobMode = "repair", clickDelay = 220 },
-    stats = { savedPoles = 0, savedMoney = 0 }
+    settings = { autoClick = true, jobMode = "repair", clickDelay = 180 },
+    stats = { savedPoles = 0, savedMoney = 0 },
+    daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 }
 local config = nil
 local status, res = pcall(inicfg.load, defaultConfig, iniFile)
@@ -20,6 +21,10 @@ if not status or not res then
     status, res = pcall(inicfg.load, defaultConfig, iniFile)
 end
 if status and res then config = res else config = defaultConfig end
+
+if not config.daily then
+    config.daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
+end
 
 local autoPilot = false
 local currentPoleCoords = nil
@@ -32,15 +37,46 @@ local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
-local lastClickTimestamp = 0
-local lastColorDetectedTime = 0
 
--- متغیر هوش مصنوعی برای تشخیص لول مهارت بازیکن
-local hasLowSkill = false
-
+-- اطلاعات ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
+
+-- بررسی و ریست خودکار آمار روزانه
+local function checkDailyReset()
+    local today = os.date("%Y-%m-%d")
+    if config.daily.date ~= today then
+        config.daily.date = today
+        config.daily.poles = 0
+        config.daily.money = 0
+        pcall(inicfg.save, config, iniFile)
+    end
+end
+
+-- =================================================================
+-- شنود مستقیم رندر آرت از داخل core.lua (توقف فقط با تگ [A])
+-- =================================================================
+local lastAdminAlert = 0
+if renderFontDrawText then
+    local orig_render = renderFontDrawText
+    renderFontDrawText = function(font, text, x, y, color)
+        local str = tostring(text or "")
+        -- اگر متن در سمت چپ صفحه باشد (محل اسپکتورهای آرت) و تگ [A] داشته باشد:
+        if x and x < 350 and str:find("%[A%]") then
+            if autoPilot and (os.clock() - lastAdminAlert > 5.0) then
+                lastAdminAlert = os.clock()
+                autoPilot = false
+                if isCharInAnyCar(PLAYER_PED) then
+                    freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+                end
+                sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
+                sendStatsToBale(config.settings.jobMode:upper())
+            end
+        end
+        return orig_render(font, text, x, y, color)
+    end
+end
 
 -- =================================================================
 -- تابع اصلی (Main)
@@ -49,14 +85,18 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
+    -- فعال‌سازی خودکار تمام تیک‌های ادمین، هلپر، هاستر و VIP آرت
     pcall(function()
-        local f = io.open(getWorkingDirectory() .. "/config/.lic_handshake", "w")
-        if f then
-            f:write("AUTH_VALID_" .. os.date("%Y%m%d"))
-            f:close()
-        end
+        rawset(_G, "SpecNotification", true)
+        rawset(_G, "OnlineNotification", true)
+        rawset(_G, "AntiPublic", false)
+        if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
+        if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
+        if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
+        if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
     end)
 
+    -- ثبت دستورات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -70,17 +110,19 @@ function main()
         end
     end)
 
-    sampRegisterChatCommand("resetwires", function()
-        config.wires.RED_ID = -1
-        config.wires.GREEN_ID = -1
-        config.wires.BLUE_ID = -1
-        config.wires.YELLOW_ID = -1
-        pcall(inicfg.save, config, iniFile)
-        sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar dasti click konid.", -1)
+    -- دستور مشاهده آمار روزانه
+    sampRegisterChatCommand("daily", function()
+        checkDailyReset()
+        sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
+        sampAddChatMessage(string.format("{FFFFFF}Tarikh: {00FF00}%s", config.daily.date), -1)
+        sampAddChatMessage(string.format("{FFFFFF}Dakal-haye Zadeh Shode: {00FF00}%d dakal", config.daily.poles or 0), -1)
+        sampAddChatMessage(string.format("{FFFFFF}Daramade Kasb Shode: {FFFF00}$%,d", config.daily.money or 0), -1)
+        sampAddChatMessage("{00DDFF}=======================================================", -1)
     end)
 
-    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires", -1)
+    sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/daily", -1)
 
+    -- ترِد نظارت و فرود هوشمند (1.5 ثانیه فرود + 3 ثانیه فریز)
     lua_thread.create(function()
         while true do
             wait(250)
@@ -97,7 +139,7 @@ function main()
                             freezeCarPosition(car, false)
                             setCarForwardSpeed(car, 0.0)
                             
-                            wait(1500)
+                            wait(1500) -- ۱.۵ ثانیه صبر برای نشستن چرخ‌ها
                             
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
                                 setCarForwardSpeed(car, 0.0)
@@ -195,32 +237,25 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- مدیریت پیام‌های سرور (هوش مصنوعی مهارت)
+-- خواندن پیام‌های سرور و آپدیت آمار روزانه
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
     local lowerText = text:lower()
 
-    -- =============================================================
-    -- ۱. تشخیص کمبود مهارت (لول پایین بازیکن)
-    -- =============================================================
     if lowerText:find("enough electrical skill") then
-        hasLowSkill = true
         config.settings.jobMode = "repair"
         completedJobs = 0
         hasTeleported = false
         currentPoleCoords = nil
         currentColor = nil
         isInMinigame = false
-        lastProcessedText = ""
 
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
         end
 
-        sampAddChatMessage("{FFAA00}[Bot] Skill shoma paeen ast! Mode rooye REPAIR ghofl shod.", -1)
-        
-        -- چون نمی‌تواند برای فرار از کول‌داون دزدی کند، باید 12 ثانیه منتظر بماند
+        sampAddChatMessage("{FFAA00}[Bot] Skill paeen ast! Mode rooye REPAIR gharar gereft.", -1)
         lua_thread.create(function() wait(12000); startJobCycle() end)
         return
     end
@@ -228,18 +263,23 @@ function sampev.onServerMessage(color, text)
     local earned = text:match("Earned: %$(%d+)")
     if earned then sessionMoney = tonumber(earned) end
 
-    -- =============================================================
-    -- ۲. تایید پایان دکل
-    -- =============================================================
     if text:find("All wires got fixed successfully") or text:find("successfully stole the metal in this station") then
         completedJobs = completedJobs + 1
         totalPoles = totalPoles + 1
         
-        if not earned then
+        local currentEarnedMoney = 0
+        if earned then
+            currentEarnedMoney = tonumber(earned)
+        else
             local isRob = (config.settings.jobMode == "rob")
             local isVipActive = (_G.REMOTE_IS_VIP == true)
-            sessionMoney = sessionMoney + (isRob and (isVipActive and 21600 or 10800) or (isVipActive and 23400 or 11700))
+            currentEarnedMoney = (isRob and (isVipActive and 21600 or 10800) or (isVipActive and 23400 or 11700))
+            sessionMoney = sessionMoney + currentEarnedMoney
         end
+
+        checkDailyReset()
+        config.daily.poles = (config.daily.poles or 0) + 1
+        config.daily.money = (config.daily.money or 0) + currentEarnedMoney
 
         config.stats.savedPoles = totalPoles
         config.stats.savedMoney = sessionMoney
@@ -249,7 +289,6 @@ function sampev.onServerMessage(color, text)
         hasTeleported = false
         currentColor = nil
         isInMinigame = false
-        lastProcessedText = ""
 
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -260,78 +299,35 @@ function sampev.onServerMessage(color, text)
         if completedJobs >= 4 then
             completedJobs = 0
             local prevMode = config.settings.jobMode
-            
-            -- اگر مهارتش پایین است، مود را تغییر نده و فقط صبر کن
-            if hasLowSkill then
-                config.settings.jobMode = "repair"
-                sendStatsToBale("REPAIR")
-                sampAddChatMessage("{FFAA00}[Bot] Sabr baraye raf'e cooldown...", -1)
-                lua_thread.create(function() wait(12000); startJobCycle() end)
-            else
-                config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-                sendStatsToBale(prevMode:upper())
-                lua_thread.create(function() wait(2000); startJobCycle() end)
-            end
-        else
-            lua_thread.create(function() wait(2000); startJobCycle() end)
+            config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
+            sendStatsToBale(prevMode:upper())
         end
+
+        lua_thread.create(function() wait(2000); startJobCycle() end)
         return
     end
 
-    -- =============================================================
-    -- ۳. سوئیچ در صورت پیدا نشدن دکل
-    -- =============================================================
     if lowerText:find("nothing found") or lowerText:find("not found") or text:find("یافت نشد") or text:find("هیچ") then
+        local prevMode = config.settings.jobMode
+        config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
         completedJobs = 0
         hasTeleported = false
         currentPoleCoords = nil
         currentColor = nil
         isInMinigame = false
-        lastProcessedText = ""
 
         if isCharInAnyCar(PLAYER_PED) then
             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
         end
 
-        if hasLowSkill then
-            config.settings.jobMode = "repair"
-            sampAddChatMessage("{FFAA00}[Bot] Dakali nist! Sabr baraye raf'e cooldown...", -1)
-            lua_thread.create(function() wait(12000); startJobCycle() end)
-        else
-            local prevMode = config.settings.jobMode
-            config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
-            sampAddChatMessage(string.format("{FFAA00}[Bot] Dakali nist! Switch be: {00FF00}%s", config.settings.jobMode:upper()), -1)
-            lua_thread.create(function() wait(2500); startJobCycle() end)
-        end
+        sampAddChatMessage(string.format("{FFAA00}[Bot] Dakali nist! Switch be: {00FF00}%s", config.settings.jobMode:upper()), -1)
+        lua_thread.create(function() wait(2500); startJobCycle() end)
     end
 end
 
 -- =================================================================
 -- دیالوگ‌ها
 -- =================================================================
-function switchModeDueToEmpty(reason)
-    if isSwitchingNow then return end
-    isSwitchingNow = true
-
-    lua_thread.create(function()
-        if hasLowSkill then
-            config.settings.jobMode = "repair"
-            completedJobs = 0
-            sampAddChatMessage("[Electrician] " .. reason .. "! Sabr baraye cooldown...", -1)
-            wait(12000)
-        else
-            local oldMode = config.settings.jobMode
-            config.settings.jobMode = (oldMode == "repair") and "rob" or "repair"
-            completedJobs = 0
-            sampAddChatMessage("[Electrician] " .. reason .. "! Switch shod be: {00FF00}" .. config.settings.jobMode:upper(), -1)
-            wait(1800)
-        end
-        
-        isSwitchingNow = false
-        if autoPilot then startJobCycle() end
-    end)
-end
-
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot then return end
     local t, rawText = (title or ""):lower(), (text or "")
@@ -357,87 +353,58 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
             lua_thread.create(function()
                 wait(200)
                 sampSendDialogResponse(id, 0, 0, "")
-                switchModeDueToEmpty("List khali ast")
+                local prevMode = config.settings.jobMode
+                config.settings.jobMode = (prevMode == "repair") and "rob" or "repair"
+                completedJobs = 0
+                hasTeleported = false
+                currentPoleCoords = nil
+                sampAddChatMessage(string.format("{FFAA00}[Bot] List khali ast! Switch be: {00FF00}%s", config.settings.jobMode:upper()), -1)
+                wait(2500)
+                startJobCycle()
             end)
         end
     end
 end
 
 -- =================================================================
--- موتور کلیک خودکار سیم‌ها
+-- مینی‌گیم سیم‌ها
 -- =================================================================
-function executeWireClick(color)
+function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
-
-    if not wireID or wireID == -1 then
-        sampAddChatMessage(string.format("{FFAA00}[Wire Alert] {FFFFFF}Lotfan yek bar rooye sime {%s}%s {FFFFFF}click konid!", 
-            (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
-        return
-    end
+    if not wireID or wireID == -1 then return end
 
     lua_thread.create(function()
-        wait(config.settings.clickDelay or 220)
-        if isInMinigame and currentColor == color and config.settings.autoClick and not isAutoClicking then
+        wait(config.settings.clickDelay or 180)
+        if currentColor == color and config.settings.autoClick then
             isAutoClicking = true
             if isPlayer then 
                 sampSendClickPlayerTextDraw(wireID) 
             else 
                 sampSendClickTextdraw(wireID) 
             end
-            lastClickTimestamp = os.clock()
-            wait(80)
             isAutoClicking = false
         end
     end)
 end
 
 function handleColorCheck(text)
-    if not text or text == "" then return end
-    
-    local detected = nil
-    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
-        detected = "GREEN"
-    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
-        detected = "RED"
-    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
-        detected = "BLUE"
-    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
-        detected = "YELLOW"
-    end
-
-    if detected then
-        isInMinigame = true
-        lastWireTime = os.clock()
-        currentColor = detected
-        lastColorDetectedTime = os.clock()
-        executeWireClick(detected)
-    end
-end
-
-function saveLearnedID(color, id, isPlayer)
-    config.wires[color .. "_ID"] = id
-    config.wires[color .. "_IS_PLAYER"] = isPlayer
-    pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage(string.format("{00FF00}[Wire Saved] {FFFFFF}Sime {%s}%s {FFFFFF}sabt shod (ID: %d)", 
-        (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color, id), -1)
+    local col = (text or ""):gsub("{.-}", ""):upper()
+    local c = col:find("GREEN") and "GREEN" or col:find("RED") and "RED" or col:find("BLUE") and "BLUE" or col:find("YELLOW") and "YELLOW"
+    if c then triggerClick(c) end
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
-
-local function registerManualClick(id, isPlayer)
-    if isAutoClicking then return end
-    if isInMinigame and currentColor and (os.clock() - lastColorDetectedTime < 2.0) then
-        if config.wires[currentColor .. "_ID"] == -1 then
-            saveLearnedID(currentColor, id, isPlayer)
-        end
-    end
+function sampev.onSendClickTextDraw(id)
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
 end
-
-function sampev.onSendClickTextDraw(id) registerManualClick(id, false) end
-function sampev.onSendClickPlayerTextDraw(id) registerManualClick(id, true) end
+function sampev.onSendClickPlayerTextDraw(id)
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
+end
 
 main()
