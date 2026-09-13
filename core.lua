@@ -1,8 +1,8 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("4010.0.HANDSHAKE_INSTANT")
+script_version("5000.0.WIRES_FIXED_PERFECT")
 
--- ۱. صدور آنی کلید لایسنس در همان خط اول (قبل از هرگونه معطلی لاگین)
+-- ۱. صدور آنی کلید لایسنس
 pcall(function()
     local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
     local p2 = getWorkingDirectory() .. "/.lic_handshake"
@@ -18,7 +18,7 @@ local inicfg = require 'inicfg'
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
     wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false },
-    settings = { autoClick = true, jobMode = "repair", clickDelay = 180 },
+    settings = { autoClick = true, jobMode = "repair", clickDelay = 220 },
     stats = { savedPoles = 0, savedMoney = 0 },
     daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 }
@@ -46,7 +46,7 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات ربات بله
+-- اطلاعات اختصاصی پیام‌رسان بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -69,7 +69,7 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    -- فعال‌سازی دائمی ویجت‌های آرت در رم
+    -- فعال‌سازی دسترسی‌های فابریک آرت در رم
     pcall(function()
         rawset(_G, "SpecNotification", true)
         rawset(_G, "OnlineNotification", true)
@@ -80,19 +80,7 @@ function main()
         if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
     end)
 
-    -- ترِد تمدید کلید لایسنس تا آرت هرگز منوها را خاموش نکند
-    lua_thread.create(function()
-        while true do
-            wait(1000)
-            pcall(function()
-                local p1 = getWorkingDirectory() .. "/config/.lic_handshake"
-                local f1 = io.open(p1, "w")
-                if f1 then f1:write("AUTH_VALID_" .. os.date("%Y%m%d")) f1:close() end
-            end)
-        end
-    end)
-
-    -- دستورات چت
+    -- دستور روشن/خاموش کردن ربات
     sampRegisterChatCommand("bot", function()
         autoPilot = not autoPilot
         sampAddChatMessage(autoPilot and "{00FF00}[Bot] ROSHAN" or "{FF0000}[Bot] KHAMOSH", -1)
@@ -106,6 +94,7 @@ function main()
         end
     end)
 
+    -- دستور ریست آیدی سیم‌ها
     sampRegisterChatCommand("resetwires", function()
         config.wires.RED_ID = -1
         config.wires.GREEN_ID = -1
@@ -115,11 +104,13 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
+    -- دستور دیدن وضعیت آیدی سیم‌ها
     sampRegisterChatCommand("wirestatus", function()
         sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
             config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
     end)
 
+    -- دستور مشاهده آمار روزانه
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -260,7 +251,7 @@ function sendStatsToBale(modeName)
 end
 
 -- =================================================================
--- تایید سرور و پایان دکل
+-- خواندن پیام‌های سرور و آپدیت آمار روزانه
 -- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
@@ -390,44 +381,79 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- مینی‌گیم سیم‌ها
+-- موتور کلیک خودکار سیم‌ها (اصلاح‌شده و بدون ارور)
 -- =================================================================
-function triggerClick(color)
+function executeWireClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
-    if not wireID or wireID == -1 then return end
+
+    if not wireID or wireID == -1 then
+        sampAddChatMessage(string.format("{FFAA00}[Wire] {FFFFFF}Sime {%s}%s {FFFFFF}sabt nashode! Yekbar dasti click konid.", 
+            (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
+        return
+    end
 
     lua_thread.create(function()
-        wait(config.settings.clickDelay or 180)
-        if currentColor == color and config.settings.autoClick then
+        wait(config.settings.clickDelay or 220)
+        if config.settings.autoClick and not isAutoClicking then
             isAutoClicking = true
             if isPlayer then 
                 sampSendClickPlayerTextDraw(wireID) 
             else 
                 sampSendClickTextdraw(wireID) 
             end
+            sampAddChatMessage(string.format("{00DDFF}[Wire] {FFFFFF}-> Clicked: {%s}%s (ID: %d)", 
+                (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color, wireID), -1)
+            wait(60)
             isAutoClicking = false
         end
     end)
 end
 
 function handleColorCheck(text)
-    local col = (text or ""):gsub("{.-}", ""):upper()
-    local c = col:find("GREEN") and "GREEN" or col:find("RED") and "RED" or col:find("BLUE") and "BLUE" or col:find("YELLOW") and "YELLOW"
-    if c then triggerClick(c) end
+    if not text or text == "" then return end
+    local clean = text:gsub("{.-}", ""):upper()
+    local detected = nil
+    
+    if text:find("~g~") or text:find("~G~") or clean:find("GREEN") or clean:find("SABZ") or text:find("00FF00") or text:find("00ff00") then
+        detected = "GREEN"
+    elseif text:find("~r~") or text:find("~R~") or clean:find("RED") or clean:find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
+        detected = "RED"
+    elseif text:find("~b~") or text:find("~B~") or clean:find("BLUE") or clean:find("ABI") or text:find("0000FF") or text:find("0088FF") then
+        detected = "BLUE"
+    elseif text:find("~y~") or text:find("~Y~") or clean:find("YELLOW") or clean:find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
+        detected = "YELLOW"
+    end
+
+    if detected then
+        isInMinigame = true
+        lastWireTime = os.clock()
+        currentColor = detected
+        executeWireClick(detected)
+    end
+end
+
+function saveLearnedID(color, id, isPlayer)
+    config.wires[color .. "_ID"] = id
+    config.wires[color .. "_IS_PLAYER"] = isPlayer
+    pcall(inicfg.save, config, iniFile)
+    sampAddChatMessage(string.format("{00FF00}[Wire Saved] {FFFFFF}Sime {%s}%s {FFFFFF}sabt shod -> ID: %d", 
+        (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color, id), -1)
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
-function sampev.onSendClickTextDraw(id)
-    if not autoPilot then return end
-    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
+
+local function registerManualClick(id, isPlayer)
+    if isAutoClicking then return end
+    if currentColor and (config.wires[currentColor .. "_ID"] == -1 or config.wires[currentColor .. "_ID"] == nil) then
+        saveLearnedID(currentColor, id, isPlayer)
+    end
 end
-function sampev.onSendClickPlayerTextDraw(id)
-    if not autoPilot then return end
-    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
-end
+
+function sampev.onSendClickTextDraw(id) registerManualClick(id, false) end
+function sampev.onSendClickPlayerTextDraw(id) registerManualClick(id, true) end
 
 main()
