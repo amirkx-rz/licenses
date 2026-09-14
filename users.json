@@ -1,10 +1,10 @@
 {
   "system_status": "ACTIVE",
   "allowed_hwids": {
-    "HWID--7903": {
+    "HWID--7900": {
       "owner": "Amir",
       "status": true,
-      "is_vip": true
+      "is_vip": false
     },
     "HWID--BOE4EC58": {
       "owner": "Parsa",
