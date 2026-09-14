@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("5050.0.ANTI_SLIDE_WATCHDOG")
+script_version("5100.0.UI_PERSISTENCE")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -75,14 +75,22 @@ function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
-    pcall(function()
-        rawset(_G, "SpecNotification", true)
-        rawset(_G, "OnlineNotification", true)
-        rawset(_G, "AntiPublic", false)
-        if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
-        if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
-        if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
-        if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
+    -- =================================================================
+    -- ترِد نگهبان رابط کاربری آرت (جلوگیری از غیب شدن لیست‌ها بعد از لاگین)
+    -- =================================================================
+    lua_thread.create(function()
+        while true do
+            wait(1000)
+            pcall(function()
+                rawset(_G, "SpecNotification", true)
+                rawset(_G, "OnlineNotification", true)
+                rawset(_G, "AntiPublic", false)
+                if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
+                if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
+                if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
+                if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
+            end)
+        end
     end)
 
     sampRegisterChatCommand("bot", function()
@@ -158,33 +166,29 @@ function main()
                     local cmd = string.format("/atp %.2f %.2f %.2f", currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
                     sampProcessChatInput(cmd)
                     hasTeleported = true
-                    lastTeleportTime = os.clock() -- ثبت زمان تلپورت برای نگهبان
+                    lastTeleportTime = os.clock()
                     
                     lua_thread.create(function()
                         if isCharInAnyCar(PLAYER_PED) then
                             local car = storeCarCharIsInNoSave(PLAYER_PED)
                             freezeCarPosition(car, false)
                             
-                            -- تلپورت اولیه
                             local targetZ = (currentPoleCoords.z and currentPoleCoords.z > 0.0) and currentPoleCoords.z or 15.0
                             
-                            -- حلقه 1.5 ثانیه ای ضد لیز خوردن (Anti-Slide)
+                            -- حلقه 1.5 ثانیه ای ضد لیز خوردن
                             for i = 1, 15 do
                                 if isCharInAnyCar(PLAYER_PED) then
                                     local vx, vy, vz = getCarVelocity(car)
-                                    -- فقط سرعت عمودی (سقوط) کار میکند، سرعت افقی قفل میشود
                                     setCarVelocity(car, 0.0, 0.0, vz)
                                 end
                                 wait(100)
                             end
                             
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
-                                -- میکرو اسنپ (Snap): ماشین دقیقاً روی آیکون زرد فیکس می‌شود تا نیازی به عقب جلو کردن نباشد
                                 local _, _, currZ = getCarCoordinates(car)
                                 setCarCoordinates(car, currentPoleCoords.x, currentPoleCoords.y, currZ)
                                 setCarVelocity(car, 0.0, 0.0, 0.0)
                                 
-                                -- 3 ثانیه فریز کامل روی دکل
                                 freezeCarPosition(car, true)
                                 wait(3000)
                                 if isCharInAnyCar(PLAYER_PED) then
@@ -397,7 +401,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
     end
 end
 
-function triggerClick(color)
+function executeWireClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
 
