@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("5100.0.UI_PERSISTENCE")
+script_version("4050.0.MEMORY_INJECTION")
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
@@ -10,7 +10,7 @@ local ltn12 = require 'ltn12'
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
     wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false },
-    settings = { autoClick = true, jobMode = "repair", clickDelay = 220 },
+    settings = { autoClick = true, jobMode = "repair", clickDelay = 180 },
     stats = { savedPoles = 0, savedMoney = 0 },
     daily = { date = os.date("%Y-%m-%d"), poles = 0, money = 0 }
 }
@@ -32,17 +32,10 @@ local completedJobs = 0
 local sessionMoney = config.stats.savedMoney or 0
 local totalPoles = config.stats.savedPoles or 0
 local hasTeleported = false
-
 local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
-local lastClickTimestamp = 0
-local lastColorDetectedTime = 0
-local adminDetectedAlert = false
-
--- نگهبان ضد گیرکردن ربات
-local lastTeleportTime = 0
 
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
@@ -58,37 +51,35 @@ local function checkDailyReset()
     end
 end
 
-if renderFontDrawText then
-    local orig_render = renderFontDrawText
-    renderFontDrawText = function(font, text, x, y, color)
-        if type(x) == "number" and x < 350 and text then
-            local str = tostring(text)
-            if str:find("%[A%]") then
-                adminDetectedAlert = true
-            end
-        end
-        return orig_render(font, text, x, y, color)
-    end
-end
-
+-- =================================================================
+-- تابع اصلی (Main)
+-- =================================================================
 function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
     -- =================================================================
-    -- ترِد نگهبان رابط کاربری آرت (جلوگیری از غیب شدن لیست‌ها بعد از لاگین)
+    -- ترفند جادویی: نفوذ به حافظه آرت و روشن کردن قطعی تمام منوها
     -- =================================================================
     lua_thread.create(function()
         while true do
             wait(1000)
             pcall(function()
-                rawset(_G, "SpecNotification", true)
-                rawset(_G, "OnlineNotification", true)
-                rawset(_G, "AntiPublic", false)
-                if rawget(_G, "tagA") then rawget(_G, "tagA")[0] = true end
-                if rawget(_G, "tagH") then rawget(_G, "tagH")[0] = true end
-                if rawget(_G, "tagV") then rawget(_G, "tagV")[0] = true end
-                if rawget(_G, "tagNormal") then rawget(_G, "tagNormal")[0] = true end
+                -- جستجو در تمام اسکریپت‌های در حال اجرای گوشی
+                for _, s in ipairs(script.list()) do
+                    -- اگر متغیرهای آرت در آن اسکریپت پیدا شد، به زور روشنشان کن!
+                    if s.env and type(s.env.SpecNotification) ~= "nil" then
+                        s.env.SpecNotification = true
+                        s.env.OnlineNotification = true
+                        s.env.AntiPublic = false
+                        
+                        -- روشن کردن تمام تیک‌های اسپکت (ادمین، هلپر، هاستر و VIP)
+                        if type(s.env.tagA) == "table" then s.env.tagA[0] = true end
+                        if type(s.env.tagH) == "table" then s.env.tagH[0] = true end
+                        if type(s.env.tagV) == "table" then s.env.tagV[0] = true end
+                        if type(s.env.tagNormal) == "table" then s.env.tagNormal[0] = true end
+                    end
+                end
             end)
         end
     end)
@@ -115,11 +106,6 @@ function main()
         sampAddChatMessage("{00FF00}[Wires] Hafezeye sim-ha pak shod! Yekbar 4 sim ro dasti click konid.", -1)
     end)
 
-    sampRegisterChatCommand("wirestatus", function()
-        sampAddChatMessage(string.format("{00DDFF}[Wires] RED:%d | GREEN:%d | BLUE:%d | YELLOW:%d",
-            config.wires.RED_ID, config.wires.GREEN_ID, config.wires.BLUE_ID, config.wires.YELLOW_ID), -1)
-    end)
-
     sampRegisterChatCommand("daily", function()
         checkDailyReset()
         sampAddChatMessage("{00DDFF}================ [ Amare Kare Emrooz ] ================", -1)
@@ -131,64 +117,27 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت، خاموش‌سازی اضطراری، تلپورت و Watchdog
+    -- ترِد تلپورت به دکل
     lua_thread.create(function()
         while true do
             wait(250)
-
-            if adminDetectedAlert and autoPilot then
-                adminDetectedAlert = false
-                autoPilot = false
-                if isCharInAnyCar(PLAYER_PED) then
-                    freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-                end
-                sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
-                sendStatsToBale(config.settings.jobMode:upper())
-            end
-
-            -- سیستم Watchdog (ضد گیر کردن ربات)
-            if autoPilot and hasTeleported and not isInMinigame then
-                if os.clock() - lastTeleportTime > 12.0 then
-                    hasTeleported = false
-                    currentPoleCoords = nil
-                    if isCharInAnyCar(PLAYER_PED) then
-                        freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
-                    end
-                    sampAddChatMessage("{FFAA00}[Bot] Kheng shod (Bug Server)! Reset kardan...", -1)
-                    startJobCycle()
-                end
-            end
-
-            -- ارسال خودکار به دکل
             if autoPilot and currentPoleCoords and not hasTeleported then
                 local mx, my, mz = getCharCoordinates(PLAYER_PED)
                 if getDistanceBetweenCoords3d(mx, my, mz, currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z) > 3.0 then
                     local cmd = string.format("/atp %.2f %.2f %.2f", currentPoleCoords.x, currentPoleCoords.y, currentPoleCoords.z)
                     sampProcessChatInput(cmd)
                     hasTeleported = true
-                    lastTeleportTime = os.clock()
                     
                     lua_thread.create(function()
                         if isCharInAnyCar(PLAYER_PED) then
                             local car = storeCarCharIsInNoSave(PLAYER_PED)
                             freezeCarPosition(car, false)
+                            setCarForwardSpeed(car, 0.0)
                             
-                            local targetZ = (currentPoleCoords.z and currentPoleCoords.z > 0.0) and currentPoleCoords.z or 15.0
-                            
-                            -- حلقه 1.5 ثانیه ای ضد لیز خوردن
-                            for i = 1, 15 do
-                                if isCharInAnyCar(PLAYER_PED) then
-                                    local vx, vy, vz = getCarVelocity(car)
-                                    setCarVelocity(car, 0.0, 0.0, vz)
-                                end
-                                wait(100)
-                            end
+                            wait(1500)
                             
                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
-                                local _, _, currZ = getCarCoordinates(car)
-                                setCarCoordinates(car, currentPoleCoords.x, currentPoleCoords.y, currZ)
-                                setCarVelocity(car, 0.0, 0.0, 0.0)
-                                
+                                setCarForwardSpeed(car, 0.0)
                                 freezeCarPosition(car, true)
                                 wait(3000)
                                 if isCharInAnyCar(PLAYER_PED) then
@@ -199,7 +148,6 @@ function main()
                     end)
                 else
                     hasTeleported = true
-                    lastTeleportTime = os.clock()
                 end
             end
         end
@@ -218,6 +166,37 @@ function sampev.onSetRaceCheckpoint(t, pos, np, r) if autoPilot then currentPole
 function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
+-- =================================================================
+-- بررسی امن اسپکتور ادمین فقط با تگ [A] از طریق لایه شبکه
+-- =================================================================
+function sampev.onPlayerSync(playerId, data)
+    if not autoPilot or not sampIsLocalPlayerSpawned() then return end
+    pcall(function()
+        if sampIsPlayerConnected(playerId) then
+            local name = sampGetPlayerNickname(playerId)
+            if name and name:find("%[A%]") then
+                local mx, my, mz = getCharCoordinates(PLAYER_PED)
+                local dist = getDistanceBetweenCoords3d(mx, my, mz, data.position.x, data.position.y, data.position.z)
+                if dist < 3.0 then
+                    local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
+                    -- اگر مختصاتش روی ما بود ولی کاراکتری در صفحه نداشت = در حال اسپکت است!
+                    if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
+                        autoPilot = false
+                        if isCharInAnyCar(PLAYER_PED) then
+                            freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+                        end
+                        sampAddChatMessage("{FF0000}🚨 [HOSHDAR] Admin [A] dar hale tamashaye shomast! Bot foran khamosh shod.", -1)
+                        sendStatsToBale(config.settings.jobMode:upper())
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- =================================================================
+-- ارسال آمار به پیام‌رسان بله با HTTPS
+-- =================================================================
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
         local myName = "Player"
@@ -233,6 +212,9 @@ function sendStatsToBale(modeName)
         end
 
         lua_thread.create(function()
+            local req_ok, req = pcall(require, 'requests')
+            if not req_ok or not req then return end
+
             local pCount = math.floor(totalPoles)
             local pMoney = math.floor(sessionMoney)
             local pMode  = modeName or "REPAIR"
@@ -246,27 +228,11 @@ function sendStatsToBale(modeName)
                 end
             end)
 
-            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\\n👤 Player: %s\\n🛠 Mode: %s\\n⚡️ Poles: %d\\n💰 Income: $%d", myName, pMode, pCount, pMoney)
-            local body = '{"chat_id":"' .. BALE_CHAT_ID .. '","text":"' .. rawText .. '"}'
-            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage", BALE_BOT_TOKEN)
-            
-            local response_body = {}
-            local _, code = http.request({
-                url = url,
-                method = "POST",
-                headers = {
-                    ["content-type"] = "application/json",
-                    ["content-length"] = tostring(#body)
-                },
-                source = ltn12.source.string(body),
-                sink = ltn12.sink.table(response_body)
-            })
+            local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+            local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
+            local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
 
-            if code ~= 200 then
-                local safeText = string.format("Report: Player: %s | Mode: %s | Poles: %d | Income: $%d", myName, pMode, pCount, pMoney):gsub(" ", "%%20")
-                local getUrl = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
-                pcall(http.request, getUrl)
-            end
+            pcall(req.get, url)
 
             totalPoles = 0
             sessionMoney = 0
@@ -277,6 +243,9 @@ function sendStatsToBale(modeName)
     end
 end
 
+-- =================================================================
+-- خواندن پیام‌های سرور و آپدیت آمار روزانه
+-- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot then return end
     local lowerText = text:lower()
@@ -363,6 +332,9 @@ function sampev.onServerMessage(color, text)
     end
 end
 
+-- =================================================================
+-- دیالوگ‌ها
+-- =================================================================
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot then return end
     local t, rawText = (title or ""):lower(), (text or "")
@@ -401,61 +373,24 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
     end
 end
 
-function executeWireClick(color)
+-- =================================================================
+-- مینی‌گیم سیم‌ها
+-- =================================================================
+function triggerClick(color)
     local wireID = config.wires[color .. "_ID"]
     local isPlayer = config.wires[color .. "_IS_PLAYER"]
-
-    if not wireID or wireID == -1 then
-        sampAddChatMessage(string.format("{FFAA00}[Wire Alert] {FFFFFF}Lotfan yek bar rooye sime {%s}%s {FFFFFF}click konid!", 
-            (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color), -1)
-        return
-    end
+    if not wireID or wireID == -1 then return end
 
     lua_thread.create(function()
         wait(config.settings.clickDelay or 220)
-        if isInMinigame and currentColor == color and config.settings.autoClick and not isAutoClicking then
-            isAutoClicking = true
-            if isPlayer then 
-                sampSendClickPlayerTextDraw(wireID) 
-            else 
-                sampSendClickTextdraw(wireID) 
-            end
-            lastClickTimestamp = os.clock()
-            wait(80)
-            isAutoClicking = false
-        end
+        if isPlayer then sampSendClickPlayerTextDraw(wireID) else sampSendClickTextdraw(wireID) end
     end)
 end
 
 function handleColorCheck(text)
-    if not text or text == "" then return end
-    
-    local detected = nil
-    if text:find("~g~") or text:find("~G~") or text:upper():find("GREEN") or text:upper():find("SABZ") or text:find("00FF00") or text:find("00ff00") then
-        detected = "GREEN"
-    elseif text:find("~r~") or text:find("~R~") or text:upper():find("RED") or text:upper():find("GHERMEZ") or text:find("FF0000") or text:find("ff0000") then
-        detected = "RED"
-    elseif text:find("~b~") or text:find("~B~") or text:upper():find("BLUE") or text:upper():find("ABI") or text:find("0000FF") or text:find("0088FF") then
-        detected = "BLUE"
-    elseif text:find("~y~") or text:find("~Y~") or text:upper():find("YELLOW") or text:upper():find("ZARD") or text:find("FFFF00") or text:find("ffff00") then
-        detected = "YELLOW"
-    end
-
-    if detected then
-        isInMinigame = true
-        lastWireTime = os.clock()
-        currentColor = detected
-        lastColorDetectedTime = os.clock()
-        executeWireClick(detected)
-    end
-end
-
-function saveLearnedID(color, id, isPlayer)
-    config.wires[color .. "_ID"] = id
-    config.wires[color .. "_IS_PLAYER"] = isPlayer
-    pcall(inicfg.save, config, iniFile)
-    sampAddChatMessage(string.format("{00FF00}[Wire Saved] {FFFFFF}Sime {%s}%s {FFFFFF}sabt shod (ID: %d)", 
-        (color == "RED" and "FF0000" or color == "GREEN" and "00FF00" or color == "BLUE" and "0088FF" or "FFFF00"), color, id), -1)
+    local col = (text or ""):gsub("{.-}", ""):upper()
+    local c = col:find("GREEN") and "GREEN" or col:find("RED") and "RED" or col:find("BLUE") and "BLUE" or col:find("YELLOW") and "YELLOW"
+    if c then triggerClick(c) end
 end
 
 function sampev.onShowTextDraw(id, data) handleColorCheck(data.text) end
@@ -463,16 +398,12 @@ function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
 function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
-local function registerManualClick(id, isPlayer)
-    if isAutoClicking then return end
-    if isInMinigame and currentColor and (os.clock() - lastColorDetectedTime < 2.0) then
-        if config.wires[currentColor .. "_ID"] == -1 then
-            saveLearnedID(currentColor, id, isPlayer)
-        end
-    end
+function sampev.onSendClickTextDraw(id)
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=false; pcall(inicfg.save, config, iniFile) end
 end
 
-function sampev.onSendClickTextDraw(id) registerManualClick(id, false) end
-function sampev.onSendClickPlayerTextDraw(id) registerManualClick(id, true) end
-
-main()
+function sampev.onSendClickPlayerTextDraw(id)
+    if not autoPilot then return end
+    if config.wires["RED_ID"] == -1 then config.wires["RED_ID"]=id; config.wires["RED_IS_PLAYER"]=true; pcall(inicfg.save, config, iniFile) end
+end
