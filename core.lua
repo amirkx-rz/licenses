@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("7000.0.AUTO_SNAP_WATCHDOG")
+script_version("8000.0.SNAP_2S_AND_25S_WATCHDOG")
 
 -- ۱. صدور آنی کلید لایسنس
 pcall(function()
@@ -149,7 +149,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد هوشمند نظارت، کشش مغناطیسی (Auto-Snap) و نگهبان ضد گیرکردن (Watchdog)
+    -- ترِد هوشمند نظارت، فرود ۱.۵ ثانیه + فریز ۳ ثانیه + مهلت ۲ ثانیه + اسنپ مجدد
     lua_thread.create(function()
         while true do
             wait(250)
@@ -158,7 +158,7 @@ function main()
                     local mx, my, mz = getCharCoordinates(PLAYER_PED)
                     local tx = currentPoleCoords.x or currentPoleCoords[1]
                     local ty = currentPoleCoords.y or currentPoleCoords[2]
-                    local tz = currentPoleCoords.z or currentPoleCoords[3] or 15.0
+                    local tz = (currentPoleCoords.z and currentPoleCoords.z > 0.0) and currentPoleCoords.z or (currentPoleCoords[3] or 15.0)
 
                     local dist = getDistanceBetweenCoords3d(mx, my, mz, tx, ty, tz)
 
@@ -175,12 +175,33 @@ function main()
                                     if isCharInAnyCar(PLAYER_PED) then
                                         local car = storeCarCharIsInNoSave(PLAYER_PED)
                                         if car and doesVehicleExist(car) then
+                                            -- مرحله اول: باز بودن فریز و ۱.۵ ثانیه مهلت برای نشستن چرخ‌ها
                                             freezeCarPosition(car, false)
                                             setCarForwardSpeed(car, 0.0)
                                             wait(1500)
+
                                             if autoPilot and isCharInAnyCar(PLAYER_PED) then
+                                                -- مرحله دوم: ۳ ثانیه فریز کامل روی دکل
                                                 setCarForwardSpeed(car, 0.0)
                                                 freezeCarPosition(car, true)
+                                                wait(3000)
+
+                                                -- مرحله سوم: باز شدن فریز
+                                                if isCharInAnyCar(PLAYER_PED) then
+                                                    freezeCarPosition(car, false)
+                                                end
+
+                                                -- مرحله چهارم: ۲ ثانیه مهلت برای شروع طبیعی مینی‌گیم
+                                                wait(2000)
+
+                                                -- مرحله پنجم: اگر بعد از ۲ ثانیه هنوز مینی‌گیم باز نشده بود و ماشین لغزیده بود، اسنپ مجدد به آیکون زرد
+                                                if autoPilot and not isInMinigame and isCharInAnyCar(PLAYER_PED) then
+                                                    local cx, cy, cz = getCharCoordinates(PLAYER_PED)
+                                                    if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 1.8 then
+                                                        setCarCoordinates(car, tx, ty, tz + 0.15)
+                                                        setCarForwardSpeed(car, 0.0)
+                                                    end
+                                                end
                                             end
                                         end
                                     end
@@ -192,30 +213,20 @@ function main()
                         end
                     end
 
-                    -- ۲. سیستم آهنربایی ضد سر خوردن (اگر ماشین لیز خورد و دور شد، فوراً برگردان روی آیکون)
+                    -- ۲. نگهبان معطلی (افزایش‌یافته به ۲۵ ثانیه برای جلوگیری از پرش شتاب‌زده)
                     if hasTeleported and not isInMinigame then
-                        if dist > 2.0 then
-                            if isCharInAnyCar(PLAYER_PED) then
-                                local car = storeCarCharIsInNoSave(PLAYER_PED)
-                                if car and doesVehicleExist(car) then
-                                    setCarCoordinates(car, tx, ty, tz + 0.15)
-                                    setCarForwardSpeed(car, 0.0)
-                                    freezeCarPosition(car, true)
-                                end
-                            end
-                        end
-
-                        -- ۳. نگهبان ۱۰ ثانیه‌ای ضد باگ دیالوگ و معطلی
-                        if (os.clock() - lastTeleportTime) > 10.0 then
+                        if (os.clock() - lastTeleportTime) > 12.0 then
                             lastTeleportTime = os.clock()
                             hasTeleported = false
                             if isCharInAnyCar(PLAYER_PED) then
-                                local car = storeCarCharIsInNoSave(PLAYER_PED)
-                                if car and doesVehicleExist(car) then
-                                    freezeCarPosition(car, false)
-                                end
+                                pcall(function()
+                                    local car = storeCarCharIsInNoSave(PLAYER_PED)
+                                    if car and doesVehicleExist(car) then
+                                        freezeCarPosition(car, false)
+                                    end
+                                end)
                             end
-                            sampAddChatMessage("{FFAA00}[Bot] Moatali shenasayi shod! Restart kardane dastan...", -1)
+                            sampAddChatMessage("{FFAA00}[Bot] Moatali (12s) shenasayi shod! Restart kardane dastan...", -1)
                             startJobCycle()
                         end
                     end
@@ -233,7 +244,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- چک‌پوینت‌ها
+-- ثبت چک‌پوینت‌ها
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad)
     if autoPilot and pos then
@@ -489,8 +500,8 @@ function handleColorCheck(text)
 end
 
 function sampev.onShowTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
-function sampev.onShowPlayerTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
-function sampev.onTextDrawSetString(id, text) if text then handleColorCheck(text) end end
+function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
+function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
@@ -507,5 +518,4 @@ function sampev.onSendClickPlayerTextDraw(id)
     end)
 end
 
--- اجرای قطعی در محیط ابری
 main()
