@@ -31,9 +31,9 @@
       "status": true,
       "is_vip": false
     },
-    "HWID-SLOT-3": {
-      "owner": "Slot3_Name",
-      "status": false,
+    "HWID--78B3F33C": {
+      "owner": "Raul",
+      "status": true,
       "is_vip": false
     },
     "HWID-SLOT-4": {
