@@ -1,8 +1,8 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("6000.0.NO_TOUCH_ADDONS_FINAL")
+script_version("7000.0.AUTO_SNAP_WATCHDOG")
 
--- ۱. صدور آنی کلید لایسنس در تمام مسیرهای ممکن رم و دیسک
+-- ۱. صدور آنی کلید لایسنس
 pcall(function()
     local paths = {
         getWorkingDirectory() .. "/config/.lic_handshake",
@@ -34,7 +34,6 @@ if not status or not res then
 end
 if status and res then config = res else config = defaultConfig end
 
--- تضمین ضدکرش بودن آرایه سیم‌ها و آمار روزانه
 if not config.wires then
     config.wires = { RED_ID = -1, RED_IS_PLAYER = false, GREEN_ID = -1, GREEN_IS_PLAYER = false, BLUE_ID = -1, BLUE_IS_PLAYER = false, YELLOW_ID = -1, YELLOW_IS_PLAYER = false }
 end
@@ -48,13 +47,14 @@ local completedJobs = 0
 local sessionMoney = config.stats.savedMoney or 0
 local totalPoles = config.stats.savedPoles or 0
 local hasTeleported = false
+local lastTeleportTime = 0
 
 local currentColor = nil
 local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات ربات بله
+-- اطلاعات اختصاصی ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -69,7 +69,6 @@ local function checkDailyReset()
     end
 end
 
--- تابع تزریق مداوم وضعیت VIP و روشن نگه داشتن قطعی لیست‌های آرت در رم
 local function enforceArtWidgets()
     pcall(function()
         local envs = { _G, getfenv(0) }
@@ -87,16 +86,13 @@ local function enforceArtWidgets()
     end)
 end
 
--- =================================================================
--- تابع اصلی (Main)
--- =================================================================
 function main()
     while not isSampAvailable() do wait(100) end
     while not sampIsLocalPlayerSpawned() do wait(200) end
 
     enforceArtWidgets()
 
-    -- ترِد تمدید مداوم کلید و روشن ماندن لیست‌های آرت بعد از لاگین
+    -- ترِد تمدید مداوم لایسنس
     lua_thread.create(function()
         while true do
             wait(500)
@@ -153,50 +149,75 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت دکل‌ها (کاملاً محافظت‌شده در برابر کرش)
+    -- ترِد هوشمند نظارت، کشش مغناطیسی (Auto-Snap) و نگهبان ضد گیرکردن (Watchdog)
     lua_thread.create(function()
         while true do
             wait(250)
-            if autoPilot and currentPoleCoords and not hasTeleported then
+            if autoPilot and currentPoleCoords then
                 pcall(function()
                     local mx, my, mz = getCharCoordinates(PLAYER_PED)
                     local tx = currentPoleCoords.x or currentPoleCoords[1]
                     local ty = currentPoleCoords.y or currentPoleCoords[2]
                     local tz = currentPoleCoords.z or currentPoleCoords[3] or 15.0
 
-                    if tx and ty and getDistanceBetweenCoords3d(mx, my, mz, tx, ty, tz) > 3.0 then
-                        local cmd = string.format("/atp %.2f %.2f %.2f", tx, ty, tz)
-                        sampProcessChatInput(cmd)
-                        hasTeleported = true
+                    local dist = getDistanceBetweenCoords3d(mx, my, mz, tx, ty, tz)
 
-                        -- پروسه ایمن فرود بدون دستورات خطرناک
-                        lua_thread.create(function()
-                            pcall(function()
-                                if isCharInAnyCar(PLAYER_PED) then
-                                    local car = storeCarCharIsInNoSave(PLAYER_PED)
-                                    if car and doesVehicleExist(car) then
-                                        freezeCarPosition(car, false)
-                                        setCarForwardSpeed(car, 0.0)
+                    -- ۱. پرش اولیه به سمت دکل
+                    if not hasTeleported then
+                        if dist > 2.5 then
+                            local cmd = string.format("/atp %.2f %.2f %.2f", tx, ty, tz)
+                            sampProcessChatInput(cmd)
+                            hasTeleported = true
+                            lastTeleportTime = os.clock()
 
-                                        wait(1500)
-
-                                        if autoPilot and isCharInAnyCar(PLAYER_PED) then
+                            lua_thread.create(function()
+                                pcall(function()
+                                    if isCharInAnyCar(PLAYER_PED) then
+                                        local car = storeCarCharIsInNoSave(PLAYER_PED)
+                                        if car and doesVehicleExist(car) then
+                                            freezeCarPosition(car, false)
                                             setCarForwardSpeed(car, 0.0)
-                                            freezeCarPosition(car, true)
-                                            wait(3000)
-                                            if isCharInAnyCar(PLAYER_PED) then
-                                                local c = storeCarCharIsInNoSave(PLAYER_PED)
-                                                if c and doesVehicleExist(c) then
-                                                    freezeCarPosition(c, false)
-                                                end
+                                            wait(1500)
+                                            if autoPilot and isCharInAnyCar(PLAYER_PED) then
+                                                setCarForwardSpeed(car, 0.0)
+                                                freezeCarPosition(car, true)
                                             end
                                         end
                                     end
-                                end
+                                end)
                             end)
-                        end)
-                    else
-                        hasTeleported = true
+                        else
+                            hasTeleported = true
+                            lastTeleportTime = os.clock()
+                        end
+                    end
+
+                    -- ۲. سیستم آهنربایی ضد سر خوردن (اگر ماشین لیز خورد و دور شد، فوراً برگردان روی آیکون)
+                    if hasTeleported and not isInMinigame then
+                        if dist > 2.0 then
+                            if isCharInAnyCar(PLAYER_PED) then
+                                local car = storeCarCharIsInNoSave(PLAYER_PED)
+                                if car and doesVehicleExist(car) then
+                                    setCarCoordinates(car, tx, ty, tz + 0.15)
+                                    setCarForwardSpeed(car, 0.0)
+                                    freezeCarPosition(car, true)
+                                end
+                            end
+                        end
+
+                        -- ۳. نگهبان ۱۰ ثانیه‌ای ضد باگ دیالوگ و معطلی
+                        if (os.clock() - lastTeleportTime) > 10.0 then
+                            lastTeleportTime = os.clock()
+                            hasTeleported = false
+                            if isCharInAnyCar(PLAYER_PED) then
+                                local car = storeCarCharIsInNoSave(PLAYER_PED)
+                                if car and doesVehicleExist(car) then
+                                    freezeCarPosition(car, false)
+                                end
+                            end
+                            sampAddChatMessage("{FFAA00}[Bot] Moatali shenasayi shod! Restart kardane dastan...", -1)
+                            startJobCycle()
+                        end
                     end
                 end)
             end
@@ -212,12 +233,13 @@ function startJobCycle()
 end
 
 -- =================================================================
--- ثبت چک‌پوینت‌ها (ایمن‌شده در برابر کرش نیل)
+-- چک‌پوینت‌ها
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad)
     if autoPilot and pos then
         currentPoleCoords = { x = pos.x or pos[1], y = pos.y or pos[2], z = pos.z or pos[3] or 15.0 }
         hasTeleported = false
+        lastTeleportTime = os.clock()
     end
 end
 
@@ -225,13 +247,14 @@ function sampev.onSetRaceCheckpoint(t, pos, np, r)
     if autoPilot and pos then
         currentPoleCoords = { x = pos.x or pos[1], y = pos.y or pos[2], z = pos.z or pos[3] or 15.0 }
         hasTeleported = false
+        lastTeleportTime = os.clock()
     end
 end
 
 function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
 
--- توقف هوشمند فقط در صورت اسپکت ادمین با تگ [A]
+-- توقف در صورت اسپکت ادمین با تگ [A]
 function sampev.onPlayerSync(playerId, data)
     if not autoPilot or not sampIsLocalPlayerSpawned() or not data then return end
     pcall(function()
@@ -305,7 +328,7 @@ function sendStatsToBale(modeName)
     end
 end
 
--- خواندن پیام‌های سرور و مدیریت کار
+-- تایید سرور و پایان دکل
 function sampev.onServerMessage(color, text)
     if not autoPilot or not text then return end
     pcall(function()
@@ -435,7 +458,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
     end)
 end
 
--- حل مینی‌گیم سیم‌ها (ضدکرش و محافظت‌شده)
+-- حل مینی‌گیم سیم‌ها
 function triggerClick(color)
     pcall(function()
         if not config.wires then return end
@@ -468,7 +491,7 @@ end
 function sampev.onShowTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
 function sampev.onShowPlayerTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
 function sampev.onTextDrawSetString(id, text) if text then handleColorCheck(text) end end
-function sampev.onPlayerTextDrawSetString(id, text) if text then handleColorCheck(text) end end
+function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
     pcall(function()
@@ -484,5 +507,5 @@ function sampev.onSendClickPlayerTextDraw(id)
     end)
 end
 
--- اجرای قطعی در فضای ابری
+-- اجرای قطعی در محیط ابری
 main()
