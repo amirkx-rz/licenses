@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("9050.0.WIRES_ABSOLUTE_FIXED")
+script_version("9100.0.ALL_IN_ONE_PERFECT")
 
 -- ۱. صدور آنی کلید لایسنس
 pcall(function()
@@ -57,7 +57,7 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات اختصاصی ربات بله
+-- اطلاعات اختصاصی پیام‌رسان بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
@@ -151,7 +151,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت دکل‌ها
+    -- ترِد هوشمند نظارت، فرود و اسنپ خودکار روی آیکون زرد
     lua_thread.create(function()
         while true do
             wait(250)
@@ -179,6 +179,7 @@ function main()
                                     if isCharInAnyCar(PLAYER_PED) then
                                         local car = storeCarCharIsInNoSave(PLAYER_PED)
                                         if car and doesVehicleExist(car) then
+                                            -- ۱. مهلت ۱.۵ ثانیه نشستن چرخ‌ها
                                             freezeCarPosition(car, false)
                                             setCarForwardSpeed(car, 0.0)
                                             wait(1500)
@@ -186,14 +187,30 @@ function main()
                                             if mySession ~= currentLandingSession or not autoPilot then return end
 
                                             if isCharInAnyCar(PLAYER_PED) then
+                                                -- ۲. سه ثانیه فریز کامل روی دکل
                                                 setCarForwardSpeed(car, 0.0)
                                                 freezeCarPosition(car, true)
                                                 wait(3000)
 
                                                 if mySession ~= currentLandingSession or not autoPilot then return end
 
+                                                -- ۳. باز شدن فریز
                                                 if isCharInAnyCar(PLAYER_PED) then
                                                     freezeCarPosition(car, false)
+                                                end
+
+                                                -- ۴. مهلت ۲ ثانیه‌ای
+                                                wait(2000)
+
+                                                if mySession ~= currentLandingSession or not autoPilot then return end
+
+                                                -- ۵. اسنپ خودکار به مرکز آیکون زرد در صورت لغزش
+                                                if not isInMinigame and isCharInAnyCar(PLAYER_PED) then
+                                                    local cx, cy, cz = getCharCoordinates(PLAYER_PED)
+                                                    if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 1.8 then
+                                                        setCarCoordinates(car, tx, ty, tz + 0.15)
+                                                        setCarForwardSpeed(car, 0.0)
+                                                    end
                                                 end
                                             end
                                         end
@@ -206,7 +223,7 @@ function main()
                         end
                     end
 
-                    -- نگهبان معطلی ۱۵ ثانیه
+                    -- ۲. نگهبان معطلی ۱۵ ثانیه‌ای
                     if hasTeleported and not isInMinigame then
                         if (os.clock() - lastTeleportTime) > 15.0 then
                             lastTeleportTime = os.clock()
@@ -238,7 +255,7 @@ function startJobCycle()
 end
 
 -- =================================================================
--- چک‌پوینت‌ها
+-- ثبت چک‌پوینت‌ها
 -- =================================================================
 function sampev.onSetCheckpoint(pos, rad)
     if autoPilot and pos then
@@ -268,7 +285,7 @@ function sampev.onDisableRaceCheckpoint()
     currentLandingSession = currentLandingSession + 1
 end
 
--- توقف در صورت اسپکت ادمین با تگ [A]
+-- توقف اضطراری فقط برای ادمین‌های با تگ [A]
 function sampev.onPlayerSync(playerId, data)
     if not autoPilot or not sampIsLocalPlayerSpawned() or not data then return end
     pcall(function()
@@ -435,7 +452,7 @@ function sampev.onServerMessage(color, text)
     end)
 end
 
--- دیالوگ‌ها
+-- پاسخ دیالوگ‌ها
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot or not title or not text then return end
     pcall(function()
@@ -478,7 +495,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- موتور اصلاح‌شده و دقیق کلیک و یادگیری سیم‌ها (حل کامل باگ)
+-- موتور اصلاح‌شده و دقیق کلیک و یادگیری سیم‌ها
 -- =================================================================
 function triggerClick(color)
     pcall(function()
@@ -534,7 +551,6 @@ function handleColorCheck(text)
     end)
 end
 
--- تابع ثبت دقیق برای هر ۴ رنگ
 local function saveLearnedID(color, id, isPlayer)
     if not color or not config.wires then return end
     config.wires[color .. "_ID"] = id
@@ -549,7 +565,6 @@ function sampev.onShowPlayerTextDraw(id, data) if data and data.text then handle
 function sampev.onTextDrawSetString(id, text) if text then handleColorCheck(text) end end
 function sampev.onPlayerTextDrawSetString(id, text) if text then handleColorCheck(text) end end
 
--- یادگیری هوشمند برای هر رنگی که روی صفحه باشد
 function sampev.onSendClickTextDraw(id)
     pcall(function()
         if isAutoClicking or not config.wires then return end
