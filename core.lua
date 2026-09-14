@@ -215,7 +215,7 @@ function main()
 
                     -- ۲. نگهبان معطلی (افزایش‌یافته به ۲۵ ثانیه برای جلوگیری از پرش شتاب‌زده)
                     if hasTeleported and not isInMinigame then
-                        if (os.clock() - lastTeleportTime) > 12.0 then
+                        if (os.clock() - lastTeleportTime) > 25.0 then
                             lastTeleportTime = os.clock()
                             hasTeleported = false
                             if isCharInAnyCar(PLAYER_PED) then
@@ -226,7 +226,7 @@ function main()
                                     end
                                 end)
                             end
-                            sampAddChatMessage("{FFAA00}[Bot] Moatali (12s) shenasayi shod! Restart kardane dastan...", -1)
+                            sampAddChatMessage("{FFAA00}[Bot] Moatali (25s) shenasayi shod! Restart kardane dastan...", -1)
                             startJobCycle()
                         end
                     end
