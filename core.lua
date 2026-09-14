@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("8000.0.SNAP_2S_AND_25S_WATCHDOG")
+script_version("9000.0.PREV_POLE_FIX_15S")
 
 -- ۱. صدور آنی کلید لایسنس
 pcall(function()
@@ -18,6 +18,8 @@ end)
 
 local sampev = require 'samp.events'
 local inicfg = require 'inicfg'
+local http = require 'socket.http'
+local ltn12 = require 'ltn12'
 
 local iniFile = "AutoElectrician.ini"
 local defaultConfig = {
@@ -48,6 +50,9 @@ local sessionMoney = config.stats.savedMoney or 0
 local totalPoles = config.stats.savedPoles or 0
 local hasTeleported = false
 local lastTeleportTime = 0
+
+-- شناسه ترِد فعال برای جلوگیری قطعی از برگشت به دکل قبلی
+local currentLandingSession = 0
 
 local currentColor = nil
 local isAutoClicking = false
@@ -111,6 +116,7 @@ function main()
         if autoPilot then
             startJobCycle()
         else
+            currentLandingSession = currentLandingSession + 1
             if isCharInAnyCar(PLAYER_PED) then
                 pcall(function() freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false) end)
             end
@@ -149,7 +155,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد هوشمند نظارت، فرود ۱.۵ ثانیه + فریز ۳ ثانیه + مهلت ۲ ثانیه + اسنپ مجدد
+    -- ترِد هوشمند نظارت دکل‌ها
     lua_thread.create(function()
         while true do
             wait(250)
@@ -162,7 +168,7 @@ function main()
 
                     local dist = getDistanceBetweenCoords3d(mx, my, mz, tx, ty, tz)
 
-                    -- ۱. پرش اولیه به سمت دکل
+                    -- ۱. پرش اولیه به سمت دکل جدید
                     if not hasTeleported then
                         if dist > 2.5 then
                             local cmd = string.format("/atp %.2f %.2f %.2f", tx, ty, tz)
@@ -170,32 +176,43 @@ function main()
                             hasTeleported = true
                             lastTeleportTime = os.clock()
 
+                            -- ایجاد شناسه جدید برای باطل کردن هر ترِد قبلی
+                            currentLandingSession = currentLandingSession + 1
+                            local mySession = currentLandingSession
+
                             lua_thread.create(function()
                                 pcall(function()
                                     if isCharInAnyCar(PLAYER_PED) then
                                         local car = storeCarCharIsInNoSave(PLAYER_PED)
                                         if car and doesVehicleExist(car) then
-                                            -- مرحله اول: باز بودن فریز و ۱.۵ ثانیه مهلت برای نشستن چرخ‌ها
+                                            -- مرحله اول: ۱.۵ ثانیه مهلت نشستن چرخ‌ها
                                             freezeCarPosition(car, false)
                                             setCarForwardSpeed(car, 0.0)
                                             wait(1500)
 
-                                            if autoPilot and isCharInAnyCar(PLAYER_PED) then
+                                            -- اگر در این فاصله دکل تمام شده بود یا جلسه عوض شده بود، متوقف شو!
+                                            if mySession ~= currentLandingSession or not autoPilot then return end
+
+                                            if isCharInAnyCar(PLAYER_PED) then
                                                 -- مرحله دوم: ۳ ثانیه فریز کامل روی دکل
                                                 setCarForwardSpeed(car, 0.0)
                                                 freezeCarPosition(car, true)
                                                 wait(3000)
+
+                                                if mySession ~= currentLandingSession or not autoPilot then return end
 
                                                 -- مرحله سوم: باز شدن فریز
                                                 if isCharInAnyCar(PLAYER_PED) then
                                                     freezeCarPosition(car, false)
                                                 end
 
-                                                -- مرحله چهارم: ۲ ثانیه مهلت برای شروع طبیعی مینی‌گیم
+                                                -- مرحله چهارم: ۲ ثانیه مهلت برای شروع مینی‌گیم
                                                 wait(2000)
 
-                                                -- مرحله پنجم: اگر بعد از ۲ ثانیه هنوز مینی‌گیم باز نشده بود و ماشین لغزیده بود، اسنپ مجدد به آیکون زرد
-                                                if autoPilot and not isInMinigame and isCharInAnyCar(PLAYER_PED) then
+                                                if mySession ~= currentLandingSession or not autoPilot then return end
+
+                                                -- مرحله پنجم: اسنپ فقط در صورتی که هنوز در همین دکل باشیم و مینی‌گیم باز نشده باشد
+                                                if not isInMinigame and isCharInAnyCar(PLAYER_PED) then
                                                     local cx, cy, cz = getCharCoordinates(PLAYER_PED)
                                                     if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 1.8 then
                                                         setCarCoordinates(car, tx, ty, tz + 0.15)
@@ -213,11 +230,12 @@ function main()
                         end
                     end
 
-                    -- ۲. نگهبان معطلی (افزایش‌یافته به ۲۵ ثانیه برای جلوگیری از پرش شتاب‌زده)
+                    -- ۲. نگهبان معطلی: دقیقاً ۱۵ ثانیه طبق درخواست
                     if hasTeleported and not isInMinigame then
-                        if (os.clock() - lastTeleportTime) > 25.0 then
+                        if (os.clock() - lastTeleportTime) > 15.0 then
                             lastTeleportTime = os.clock()
                             hasTeleported = false
+                            currentLandingSession = currentLandingSession + 1
                             if isCharInAnyCar(PLAYER_PED) then
                                 pcall(function()
                                     local car = storeCarCharIsInNoSave(PLAYER_PED)
@@ -226,7 +244,7 @@ function main()
                                     end
                                 end)
                             end
-                            sampAddChatMessage("{FFAA00}[Bot] Moatali (25s) shenasayi shod! Restart kardane dastan...", -1)
+                            sampAddChatMessage("{FFAA00}[Bot] Moatali (15s) rad shod! Restart kardane charkhe...", -1)
                             startJobCycle()
                         end
                     end
@@ -262,8 +280,17 @@ function sampev.onSetRaceCheckpoint(t, pos, np, r)
     end
 end
 
-function sampev.onDisableCheckpoint() currentPoleCoords = nil; hasTeleported = false end
-function sampev.onDisableRaceCheckpoint() currentPoleCoords = nil; hasTeleported = false end
+function sampev.onDisableCheckpoint() 
+    currentPoleCoords = nil 
+    hasTeleported = false 
+    currentLandingSession = currentLandingSession + 1
+end
+
+function sampev.onDisableRaceCheckpoint() 
+    currentPoleCoords = nil 
+    hasTeleported = false 
+    currentLandingSession = currentLandingSession + 1
+end
 
 -- توقف در صورت اسپکت ادمین با تگ [A]
 function sampev.onPlayerSync(playerId, data)
@@ -278,6 +305,7 @@ function sampev.onPlayerSync(playerId, data)
                     local hasPed, pedHandle = sampGetCharHandleBySampPlayerId(playerId)
                     if not hasPed or (hasPed and doesCharExist(pedHandle) and not isCharOnScreen(pedHandle)) then
                         autoPilot = false
+                        currentLandingSession = currentLandingSession + 1
                         if isCharInAnyCar(PLAYER_PED) then
                             freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
                         end
@@ -352,6 +380,7 @@ function sampev.onServerMessage(color, text)
             currentPoleCoords = nil
             currentColor = nil
             isInMinigame = false
+            currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -391,6 +420,9 @@ function sampev.onServerMessage(color, text)
             hasTeleported = false
             currentColor = nil
             isInMinigame = false
+            
+            -- باطل کردن فوری ترِدهای فرود دکل قبلی
+            currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -417,6 +449,7 @@ function sampev.onServerMessage(color, text)
             currentPoleCoords = nil
             currentColor = nil
             isInMinigame = false
+            currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
                 freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
@@ -460,6 +493,7 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
                     completedJobs = 0
                     hasTeleported = false
                     currentPoleCoords = nil
+                    currentLandingSession = currentLandingSession + 1
                     sampAddChatMessage(string.format("{FFAA00}[Bot] List khali ast! Switch be: {00FF00}%s", config.settings.jobMode:upper()), -1)
                     wait(2500)
                     startJobCycle()
@@ -500,8 +534,8 @@ function handleColorCheck(text)
 end
 
 function sampev.onShowTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
-function sampev.onShowPlayerTextDraw(id, data) handleColorCheck(data.text) end
-function sampev.onTextDrawSetString(id, text) handleColorCheck(text) end
+function sampev.onShowPlayerTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
+function sampev.onTextDrawSetString(id, text) if text then handleColorCheck(text) end end
 function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
