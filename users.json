@@ -11,7 +11,7 @@
       "status": true,
       "is_vip": false
     },
-    "HWID--FBA3BD9C": {
+    "HWID--A1A587CB": {
       "owner": "Hassan",
       "status": true,
       "is_vip": false
@@ -21,9 +21,9 @@
       "status": true,
       "is_vip": false
     },
-    "HWID--82B619E0": {
-      "owner": "Hassan 2",
-      "status": true,
+    "HWID--free": {
+      "owner": "khali",
+      "status": falae,
       "is_vip": false
     },
     "HWID--C10D9C4D": {
@@ -36,9 +36,9 @@
       "status": true,
       "is_vip": false
     },
-    "HWID--A1A587CB": {
-      "owner": "Hasan 3",
-      "status": true,
+    "HWID--plock": {
+      "owner": "Khali1",
+      "status": false,
       "is_vip": false
     }
   }
