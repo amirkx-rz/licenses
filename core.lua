@@ -1,8 +1,8 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("9100.0.ALL_IN_ONE_PERFECT")
+script_version("9900.0.HWID_TRACKER_SECURITY")
 
--- ۱. صدور آنی کلید لایسنس
+-- ۱. صدور آنی کلید لایسنس برای ADDONS
 pcall(function()
     local paths = {
         getWorkingDirectory() .. "/config/.lic_handshake",
@@ -57,10 +57,20 @@ local isAutoClicking = false
 local isInMinigame = false
 local lastWireTime = 0
 
--- اطلاعات اختصاصی پیام‌رسان بله
+-- اطلاعات اختصاصی ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
+
+-- تابع استخراج دقیق HWID دستگاه برای ردیابی در پیام بله
+local function getCurrentHWID()
+    local n = "Player"
+    pcall(function() n = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
+    local f = io.open(getWorkingDirectory() .. "/.hwid", "r")
+    local t = f and f:read("*a") or "UNKNOWN"
+    if f then f:close() end
+    return "HWID--" .. t
+end
 
 local function checkDailyReset()
     local today = os.date("%Y-%m-%d")
@@ -95,6 +105,7 @@ function main()
 
     enforceArtWidgets()
 
+    -- ترِد تمدید لایسنس
     lua_thread.create(function()
         while true do
             wait(500)
@@ -151,7 +162,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد هوشمند نظارت، فرود و اسنپ خودکار روی آیکون زرد
+    -- ترِد نظارت دکل‌ها
     lua_thread.create(function()
         while true do
             wait(250)
@@ -179,7 +190,6 @@ function main()
                                     if isCharInAnyCar(PLAYER_PED) then
                                         local car = storeCarCharIsInNoSave(PLAYER_PED)
                                         if car and doesVehicleExist(car) then
-                                            -- ۱. مهلت ۱.۵ ثانیه نشستن چرخ‌ها
                                             freezeCarPosition(car, false)
                                             setCarForwardSpeed(car, 0.0)
                                             wait(1500)
@@ -187,24 +197,20 @@ function main()
                                             if mySession ~= currentLandingSession or not autoPilot then return end
 
                                             if isCharInAnyCar(PLAYER_PED) then
-                                                -- ۲. سه ثانیه فریز کامل روی دکل
                                                 setCarForwardSpeed(car, 0.0)
                                                 freezeCarPosition(car, true)
                                                 wait(3000)
 
                                                 if mySession ~= currentLandingSession or not autoPilot then return end
 
-                                                -- ۳. باز شدن فریز
                                                 if isCharInAnyCar(PLAYER_PED) then
                                                     freezeCarPosition(car, false)
                                                 end
 
-                                                -- ۴. مهلت ۲ ثانیه‌ای
                                                 wait(2000)
 
                                                 if mySession ~= currentLandingSession or not autoPilot then return end
 
-                                                -- ۵. اسنپ خودکار به مرکز آیکون زرد در صورت لغزش
                                                 if not isInMinigame and isCharInAnyCar(PLAYER_PED) then
                                                     local cx, cy, cz = getCharCoordinates(PLAYER_PED)
                                                     if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 1.8 then
@@ -223,7 +229,7 @@ function main()
                         end
                     end
 
-                    -- ۲. نگهبان معطلی ۱۵ ثانیه‌ای
+                    -- نگهبان معطلی ۱۵ ثانیه
                     if hasTeleported and not isInMinigame then
                         if (os.clock() - lastTeleportTime) > 15.0 then
                             lastTeleportTime = os.clock()
@@ -254,9 +260,6 @@ function startJobCycle()
     lua_thread.create(function() wait(500); sampSendChat("/pl") end)
 end
 
--- =================================================================
--- ثبت چک‌پوینت‌ها
--- =================================================================
 function sampev.onSetCheckpoint(pos, rad)
     if autoPilot and pos then
         currentPoleCoords = { x = pos.x or pos[1], y = pos.y or pos[2], z = pos.z or pos[3] or 15.0 }
@@ -285,7 +288,6 @@ function sampev.onDisableRaceCheckpoint()
     currentLandingSession = currentLandingSession + 1
 end
 
--- توقف اضطراری فقط برای ادمین‌های با تگ [A]
 function sampev.onPlayerSync(playerId, data)
     if not autoPilot or not sampIsLocalPlayerSpawned() or not data then return end
     pcall(function()
@@ -311,11 +313,12 @@ function sampev.onPlayerSync(playerId, data)
     end)
 end
 
--- ارسال آمار به بله با HTTPS
+-- ارسال آمار به بله همراه با درج شناسه HWID برای ردیابی نفوذ
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
         local myName = "Player"
         pcall(function() myName = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
+        local usedHWID = getCurrentHWID()
 
         if myName:lower() == MY_OWN_NAME:lower() then
             totalPoles = 0
@@ -339,12 +342,13 @@ function sendStatsToBale(modeName)
                     local path = getWorkingDirectory() .. "/config/ElectricianStats.txt"
                     local f = io.open(path, "a")
                     if f then
-                        f:write(string.format("[%s] Player: %s | Mode: %s | Poles: %d | Money: $%d\n", os.date("%H:%M:%S"), myName, pMode, pCount, pMoney))
+                        f:write(string.format("[%s] Player: %s | HWID: %s | Mode: %s | Poles: %d | Money: $%d\n", os.date("%H:%M:%S"), myName, usedHWID, pMode, pCount, pMoney))
                         f:close()
                     end
                 end)
 
-                local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, pMode, pCount, pMoney)
+                -- پیام بله شامل شناسه دستگاه استفاده‌شده:
+                local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🔑 HWID: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, usedHWID, pMode, pCount, pMoney)
                 local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
                 local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
 
@@ -360,7 +364,6 @@ function sendStatsToBale(modeName)
     end
 end
 
--- تایید سرور و پایان دکل
 function sampev.onServerMessage(color, text)
     if not autoPilot or not text then return end
     pcall(function()
@@ -452,7 +455,6 @@ function sampev.onServerMessage(color, text)
     end)
 end
 
--- پاسخ دیالوگ‌ها
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot or not title or not text then return end
     pcall(function()
@@ -494,9 +496,6 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
     end)
 end
 
--- =================================================================
--- موتور اصلاح‌شده و دقیق کلیک و یادگیری سیم‌ها
--- =================================================================
 function triggerClick(color)
     pcall(function()
         if not config.wires or not color then return end
