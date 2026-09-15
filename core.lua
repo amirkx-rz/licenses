@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("9900.0.HWID_TRACKER_SECURITY")
+script_version("9950.0.TIME_OUT_AND_SNAP_FIX")
 
 -- ۱. صدور آنی کلید لایسنس برای ADDONS
 pcall(function()
@@ -62,7 +62,6 @@ local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
 local BALE_CHAT_ID   = "1804721465"
 local MY_OWN_NAME    = "Amir"
 
--- تابع استخراج دقیق HWID دستگاه برای ردیابی در پیام بله
 local function getCurrentHWID()
     local n = "Player"
     pcall(function() n = sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) end)
@@ -105,7 +104,6 @@ function main()
 
     enforceArtWidgets()
 
-    -- ترِد تمدید لایسنس
     lua_thread.create(function()
         while true do
             wait(500)
@@ -162,7 +160,7 @@ function main()
 
     sampAddChatMessage("{00FF00}[Private Core] {FFFFFF}Loaded! Cmds: {00FFFF}/bot {FFFFFF}| {00FFFF}/resetwires {FFFFFF}| {00FFFF}/daily", -1)
 
-    -- ترِد نظارت دکل‌ها
+    -- ترِد نظارت دکل‌ها (بهینه‌سازی دقیق اسنپ ضد دکل‌سوزی)
     lua_thread.create(function()
         while true do
             wait(250)
@@ -211,9 +209,10 @@ function main()
 
                                                 if mySession ~= currentLandingSession or not autoPilot then return end
 
+                                                -- اسنپ قطعی به مرکز آیکون زرد برای رفع دکل‌سوزی (اگر فاصله بیش از 0.8 متر باشد)
                                                 if not isInMinigame and isCharInAnyCar(PLAYER_PED) then
                                                     local cx, cy, cz = getCharCoordinates(PLAYER_PED)
-                                                    if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 1.8 then
+                                                    if getDistanceBetweenCoords3d(cx, cy, cz, tx, ty, tz) > 0.8 then
                                                         setCarCoordinates(car, tx, ty, tz + 0.15)
                                                         setCarForwardSpeed(car, 0.0)
                                                     end
@@ -313,7 +312,6 @@ function sampev.onPlayerSync(playerId, data)
     end)
 end
 
--- ارسال آمار به بله همراه با درج شناسه HWID برای ردیابی نفوذ
 function sendStatsToBale(modeName)
     if totalPoles > 0 then
         local myName = "Player"
@@ -347,7 +345,6 @@ function sendStatsToBale(modeName)
                     end
                 end)
 
-                -- پیام بله شامل شناسه دستگاه استفاده‌شده:
                 local rawText = string.format("📊 *Gozarshe Kar* (Electrician)\n👤 Player: %s\n🔑 HWID: %s\n🛠 Mode: %s\n⚡️ Poles: %d\n💰 Income: $%d", myName, usedHWID, pMode, pCount, pMoney)
                 local safeText = rawText:gsub("\n", "%%0A"):gsub(" ", "%%20")
                 local url = string.format("https://tapi.bale.ai/bot%s/sendMessage?chat_id=%s&text=%s", BALE_BOT_TOKEN, BALE_CHAT_ID, safeText)
@@ -368,6 +365,23 @@ function sampev.onServerMessage(color, text)
     if not autoPilot or not text then return end
     pcall(function()
         local lowerText = text:lower()
+
+        -- ۱. حل مشکل ارور اتمام تایم (You ran out of time)
+        if lowerText:find("ran out of time") or lowerText:find("out of time") then
+            currentPoleCoords = nil
+            hasTeleported = false
+            currentColor = nil
+            isInMinigame = false
+            currentLandingSession = currentLandingSession + 1
+
+            if isCharInAnyCar(PLAYER_PED) then
+                freezeCarPosition(storeCarCharIsInNoSave(PLAYER_PED), false)
+            end
+
+            sampAddChatMessage("{FFAA00}[Bot] Zaman tamam shod! Start mojadad dakal...", -1)
+            lua_thread.create(function() wait(1500); startJobCycle() end)
+            return
+        end
 
         if lowerText:find("enough electrical skill") then
             config.settings.jobMode = "repair"
@@ -562,7 +576,7 @@ end
 function sampev.onShowTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
 function sampev.onShowPlayerTextDraw(id, data) if data and data.text then handleColorCheck(data.text) end end
 function sampev.onTextDrawSetString(id, text) if text then handleColorCheck(text) end end
-function sampev.onPlayerTextDrawSetString(id, text) if text then handleColorCheck(text) end end
+function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
     pcall(function()
