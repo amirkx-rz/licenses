@@ -23,7 +23,7 @@
     },
     "HWID--free": {
       "owner": "khali",
-      "status": falae,
+      "status": false,
       "is_vip": false
     },
     "HWID--C10D9C4D": {
