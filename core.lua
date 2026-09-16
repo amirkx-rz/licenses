@@ -1,6 +1,6 @@
 script_name("Private Assistant - Cloud Core")
 script_author("Diagnostic")
-script_version("9999.8.PERFECT_CONTINUOUS_WIRES")
+script_version("9999.9.CONTINUOUS_WIRES_PERFECT")
 
 -- ۱. صدور آنی کلید لایسنس برای ADDONS
 pcall(function()
@@ -55,7 +55,11 @@ local currentLandingSession = 0
 local currentColor = nil
 local isInMinigame = false
 local lastWireTime = 0
-local isClicking = false
+
+-- متغیرهای سیستم کلیک بدون باگ
+local isAutoSending = false
+local lastTriggerTime = 0
+local lastTriggerColor = nil
 
 -- اطلاعات اختصاصی ربات بله
 local BALE_BOT_TOKEN = "1192198839:fHVEOH081y3QF1ppDcurfNwC1Fxs3TGztss"
@@ -218,6 +222,7 @@ function main()
                         end
                     end
 
+                    -- نگهبان معطلی ۱۵ ثانیه‌ای
                     if hasTeleported and not isInMinigame then
                         if (os.clock() - lastTeleportTime) > 15.0 then
                             lastTeleportTime = os.clock()
@@ -325,17 +330,20 @@ function sendStatsToBale(modeName)
     end
 end
 
+-- =================================================================
+-- خواندن پیام‌های سرور (پوشش کامل ارورهای مینی‌گیم)
+-- =================================================================
 function sampev.onServerMessage(color, text)
     if not autoPilot or not text then return end
     pcall(function()
         local lowerText = text:lower()
 
-        if lowerText:find("out of chance") or lowerText:find("ran out of time") or lowerText:find("out of time") or (lowerText:find("wrong wire") and lowerText:find("chancess")) then
+        -- پوشش دقیق اتمام شانس‌ها، سوختن تایم یا غلط زدن سیم
+        if lowerText:find("ran out") or lowerText:find("chancess") or lowerText:find("out of chance") or lowerText:find("out of time") then
             currentPoleCoords = nil
             hasTeleported = false
             currentColor = nil
             isInMinigame = false
-            isClicking = false
             currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
@@ -354,7 +362,6 @@ function sampev.onServerMessage(color, text)
             currentPoleCoords = nil
             currentColor = nil
             isInMinigame = false
-            isClicking = false
             currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
@@ -395,7 +402,6 @@ function sampev.onServerMessage(color, text)
             hasTeleported = false
             currentColor = nil
             isInMinigame = false
-            isClicking = false
             currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
@@ -423,7 +429,6 @@ function sampev.onServerMessage(color, text)
             currentPoleCoords = nil
             currentColor = nil
             isInMinigame = false
-            isClicking = false
             currentLandingSession = currentLandingSession + 1
 
             if isCharInAnyCar(PLAYER_PED) then
@@ -436,6 +441,7 @@ function sampev.onServerMessage(color, text)
     end)
 end
 
+-- دیالوگ‌ها
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not autoPilot or not title or not text then return end
     pcall(function()
@@ -478,50 +484,54 @@ function sampev.onShowDialog(id, style, title, b1, b2, text)
 end
 
 -- =================================================================
--- موتور کلیک پیوسته سیم‌ها (حل کامل باگ یکی در میان زدن)
+-- موتور دقیق و بدون باگ کلیک پیوسته سیم‌ها
 -- =================================================================
 function triggerClick(color)
     pcall(function()
-        if not config.wires or not color or isClicking then return end
+        if not config.wires or not color then return end
         local wireID = config.wires[color .. "_ID"]
         local isPlayer = config.wires[color .. "_IS_PLAYER"]
         if not wireID or wireID == -1 then return end
 
-        isClicking = true
+        local now = os.clock()
+        -- فقط تکرار دقیقاً همان رنگ در فاصله کمتر از ۱۲۰ میلی‌ثانیه فیلتر می‌شود
+        if (now - lastTriggerTime < 0.12) and (lastTriggerColor == color) then
+            return
+        end
+        lastTriggerTime = now
+        lastTriggerColor = color
+
         lua_thread.create(function()
             pcall(function()
                 wait(config.settings.clickDelay or 180)
+                isAutoSending = true
                 if isPlayer then 
                     sampSendClickPlayerTextDraw(wireID) 
                 else 
                     sampSendClickTextdraw(wireID) 
                 end
+                wait(30)
+                isAutoSending = false
             end)
-            wait(40) -- بلافاصله بعد از ارسال کلیک، قفل باز می‌شود تا سیم بعدی دریافت شود
-            isClicking = false
         end)
     end)
 end
 
 local function detectColor(text)
     if not text then return nil end
-    local raw = tostring(text)
-    local clean = raw:gsub("{.-}", ""):upper()
+    -- فقط متن خالص بدون تگ‌های رنگی
+    local clean = tostring(text):gsub("{.-}", ""):gsub("~.-~", ""):upper()
     
-    if raw:find("~g~") or raw:find("~G~") or clean:find("GREEN") or clean:find("SABZ") or raw:find("00FF00") or raw:find("00ff00") then
-        return "GREEN"
-    elseif raw:find("~r~") or raw:find("~R~") or clean:find("RED") or clean:find("GHERMEZ") or raw:find("FF0000") or raw:find("ff0000") then
-        return "RED"
-    elseif raw:find("~b~") or raw:find("~B~") or clean:find("BLUE") or clean:find("ABI") or raw:find("0000FF") or raw:find("0088FF") then
-        return "BLUE"
-    elseif raw:find("~y~") or raw:find("~Y~") or clean:find("YELLOW") or clean:find("ZARD") or raw:find("FFFF00") or raw:find("ffff00") then
-        return "YELLOW"
+    if clean:find("GREEN") then return "GREEN"
+    elseif clean:find("RED") then return "RED"
+    elseif clean:find("BLUE") then return "BLUE"
+    elseif clean:find("YELLOW") then return "YELLOW"
     end
     return nil
 end
 
 function handleColorCheck(text)
-    if not text or text == "" or isClicking then return end
+    if not text or text == "" then return end
     pcall(function()
         local c = detectColor(text)
         if c then
@@ -549,7 +559,7 @@ function sampev.onPlayerTextDrawSetString(id, text) handleColorCheck(text) end
 
 function sampev.onSendClickTextDraw(id)
     pcall(function()
-        if isClicking or not config.wires then return end
+        if isAutoSending or not config.wires then return end
         if currentColor and (config.wires[currentColor .. "_ID"] == -1 or config.wires[currentColor .. "_ID"] == nil) then
             saveLearnedID(currentColor, id, false)
         end
@@ -558,7 +568,7 @@ end
 
 function sampev.onSendClickPlayerTextDraw(id)
     pcall(function()
-        if isClicking or not config.wires then return end
+        if isAutoSending or not config.wires then return end
         if currentColor and (config.wires[currentColor .. "_ID"] == -1 or config.wires[currentColor .. "_ID"] == nil) then
             saveLearnedID(currentColor, id, true)
         end
