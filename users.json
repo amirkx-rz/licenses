@@ -31,8 +31,13 @@
       "status": true,
       "is_vip": false
     },
-      "HWID--B9A72252": {
+    "HWID--B9A72252": {
       "owner": "Thomas",
+      "status": true,
+      "is_vip": false
+    },
+    "HWID--C7DDA903": {
+      "owner": "Ayad",
       "status": true,
       "is_vip": false
     },
